@@ -1,0 +1,7 @@
+name = "RigorousUlam2D"
+uuid = "2cbaba54-1f7c-42c5-a2df-29a8df60aaff"
+authors = ["Isaia Nisoli"]
+version = "0.0.1-DEV"
+
+[compat]
+julia = "1.12"

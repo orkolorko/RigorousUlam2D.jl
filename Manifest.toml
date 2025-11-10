@@ -2,7 +2,7 @@
 
 julia_version = "1.12.1"
 manifest_format = "2.0"
-project_hash = "fca793713cb00305f34539b68e4f5efdc8482902"
+project_hash = "6e809f3bcf2e223c7099620b65ae368b068c947b"
 
 [[deps.ArgTools]]
 uuid = "0dad84c5-d112-42e6-8d28-ef12dabb789f"
@@ -70,6 +70,11 @@ version = "1.0.1"
     LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
     RecipesBase = "3cdcf5f2-1ef4-517c-9805-6587b60abb01"
     SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+
+[[deps.IterTools]]
+git-tree-sha1 = "42d5f897009e7ff2cf88db414a389e5ed1bdd023"
+uuid = "c8e1da08-722c-5040-9ed9-7db0dc04731e"
+version = "1.10.0"
 
 [[deps.JLLWrappers]]
 deps = ["Artifacts", "Preferences"]
@@ -188,7 +193,7 @@ uuid = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 version = "1.11.0"
 
 [[deps.RigorousUlam2D]]
-deps = ["IntervalArithmetic"]
+deps = ["IntervalArithmetic", "StaticArrays"]
 path = "."
 uuid = "2cbaba54-1f7c-42c5-a2df-29a8df60aaff"
 version = "0.0.1-DEV"

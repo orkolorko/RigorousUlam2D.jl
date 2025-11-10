@@ -36,6 +36,77 @@ end
 
 export H, DH, H_centered
 
+using IterTools: product
+
+# 2D: split a box Qi = [Ix, Iy] into 4 sub-boxes
+function quadsect(Qi)
+    x1, x2 = bisect(Qi[1])
+    y1, y2 = bisect(Qi[2])
+    return [[x, y] for (x, y) in product((x1, x2), (y1, y2))]
+end
+
+using IntervalArithmetic
+
+# 1D interval subset (closed, inclusive)
+@inline subset1D(a::Interval, b::Interval) = (inf(b) <= inf(a)) & (sup(a) <= sup(b))
+
+# Empty box if any coord interval is empty
+@inline is_empty_box(Q) = any(isempty_interval, Q)
+
+# N-D subset for boxes Q = (I₁, …, I_d) or [I₁, …, I_d]
+function issubset(Qi, Qj)
+    @assert length(Qi) == length(Qj) "Box dims must match"
+    if is_empty_box(Qi)             # ∅ ⊆ anything
+        return true
+    elseif is_empty_box(Qj)         # nonempty ⊆ ∅ is false
+        return is_empty_box(Qi)
+    end
+    return all(subset1D.(Qi, Qj))
+end
+
+# Disjointness: strict gap in ANY coordinate
+@inline function isdisjoint(Qi, Qj)
+    @assert length(Qi) == length(Qj)
+    return any(@. (sup(Qi) < inf(Qj)) | (sup(Qj) < inf(Qi)))
+end
+
+@inline intersects(Qi, Qj) = !isdisjoint(Qi, Qj)
+
+width1D(I::Interval) = interval(sup(I)) - interval(inf(I))
+area(Q) = width1D(Q[1]) * width1D(Q[2])  
+
+function rel_size(Q_i, Q_j; ε = 1e-6, maxdepth = 30)
+    val = I0        # guaranteed IN area
+    uncertain = I0  # unresolved boundary belt area
+
+    # worklist holds (box, depth)
+    candidates = [(Q_i, 0)]
+
+    while !isempty(candidates)
+        Q, d = pop!(candidates)
+
+        imQ = H_centered(Q)  # your enclosure of H(Q); keep as-is
+
+        if issubset(imQ, Q_j)
+            val += area(Q)
+        elseif isdisjoint(imQ, Q_j)
+            # OUT: nothing to add
+        else
+            if area(Q) <= ε || d >= maxdepth
+                uncertain += area(Q)
+            else
+                # subdivide
+                for child in quadsect(Q)
+                    push!(candidates, (child, d + 1))
+                end
+            end
+        end
+    end
+
+    return val, uncertain   # inner measure, unresolved belt; outer ≤ val + uncertain
+end
+
+export rel_size
 
 
 end

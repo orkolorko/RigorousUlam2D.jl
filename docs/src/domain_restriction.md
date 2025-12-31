@@ -317,7 +317,11 @@ println("=" ^ 60)
 compute_effective_partition_adaptive
 create_restricted_partition
 compute_effective_domain
+compute_effective_domain_boxes
+compute_effective_partition
 compute_forward_image_enclosure
+compute_forward_image_boxes
+create_partition_from_boxes
 restrict_partition_to_domain
 hull
 intersect_boxes

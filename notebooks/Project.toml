@@ -3,7 +3,7 @@
 
 [deps]
 CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
-RigorousUlam2D = "..." # Will use the parent package
+RigorousUlam2D = "2cbaba54-1f7c-42c5-a2df-29a8df60aaff"
 IntervalArithmetic = "d1acc4aa-44c8-5952-acd4-ba5d80a2a253"
 IntervalBoxes = "43d83c95-ebbb-40ec-8188-24586a1458ed"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"

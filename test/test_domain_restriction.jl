@@ -321,4 +321,146 @@ using Test
         println("    Boxes: $(info.n_boxes)")
         println("    Noise expansion: $(round(box_measure(info.image_noisy)/box_measure(info.image_clean), digits=2))×")
     end
+
+    @testset "compute_effective_partition_adaptive - fixed levels" begin
+        println("\n--- Testing adaptive refinement with fixed levels ---")
+
+        F(x, y) = (0.5*x + 0.25, 0.5*y + 0.25)
+        domain = IntervalBox(interval(0.0, 1.0), interval(0.0, 1.0))
+        noise = uniform_noise_box(0.01, 2)
+
+        # Test with fixed refinement levels
+        partition, info = compute_effective_partition_adaptive(
+            F, domain, noise,
+            initial_depth=2,
+            refinement_levels=2,
+            verbose=true
+        )
+
+        # Basic checks
+        @test partition.n_boxes > 0
+        @test info.refinement_levels == 2
+        @test info.reduction_factor > 1.0  # Effective domain should be smaller
+
+        println("  Fixed levels test:")
+        println("    Initial depth: 2, Refinement levels: 2")
+        println("    Final boxes: $(partition.n_boxes)")
+        println("    Reduction: $(round(info.reduction_factor, digits=2))×")
+    end
+
+    @testset "compute_effective_partition_adaptive - diameter-based" begin
+        println("\n--- Testing adaptive refinement with diameter stopping ---")
+
+        F(x, y) = (0.5*x + 0.25, 0.5*y + 0.25)
+        domain = IntervalBox(interval(0.0, 1.0), interval(0.0, 1.0))
+        noise = uniform_noise_box(0.01, 2)
+
+        target_diameter = 0.05
+
+        # Test with diameter-based stopping
+        partition, info = compute_effective_partition_adaptive(
+            F, domain, noise,
+            initial_depth=2,
+            max_diameter=target_diameter,
+            verbose=true
+        )
+
+        # Verify diameter constraint
+        @test info.partition_diameter <= target_diameter
+
+        # Basic properties
+        @test partition.n_boxes > 0
+        @test info.reduction_factor > 1.0  # Effective domain should be smaller
+
+        println("  Diameter-based test:")
+        println("    Target diameter: $target_diameter")
+        println("    Achieved diameter: $(round(info.partition_diameter, digits=6))")
+        println("    Final boxes: $(partition.n_boxes)")
+        println("    Refinement levels used: $(info.refinement_levels)")
+    end
+
+    @testset "compute_effective_partition_adaptive - comparison" begin
+        println("\n--- Comparing refinement strategies ---")
+
+        F(x, y) = (0.4*x + 0.3, 0.4*y + 0.3)
+        domain = IntervalBox(interval(0.0, 1.0), interval(0.0, 1.0))
+
+        # Fixed levels
+        partition_fixed, info_fixed = compute_effective_partition_adaptive(
+            F, domain, nothing,
+            initial_depth=3,
+            refinement_levels=2,
+            verbose=false
+        )
+
+        # Diameter-based
+        target_diameter = 0.03
+        partition_diameter, info_diameter = compute_effective_partition_adaptive(
+            F, domain, nothing,
+            initial_depth=3,
+            max_diameter=target_diameter,
+            verbose=false
+        )
+
+        # Both should reduce the domain
+        @test info_fixed.reduction_factor > 1.0
+        @test info_diameter.reduction_factor > 1.0
+
+        # Diameter-based should respect constraint
+        @test info_diameter.partition_diameter <= target_diameter
+
+        println("  Comparison:")
+        println("    Fixed (2 levels): $(partition_fixed.n_boxes) boxes, diameter=$(round(info_fixed.partition_diameter, digits=6))")
+        println("    Diameter-based: $(partition_diameter.n_boxes) boxes, diameter=$(round(info_diameter.partition_diameter, digits=6))")
+    end
+
+    @testset "compute_effective_partition_adaptive - error handling" begin
+        F(x, y) = (0.5*x, 0.5*y)
+        domain = IntervalBox(interval(0.0, 1.0), interval(0.0, 1.0))
+
+        # Should error if neither stopping criterion specified
+        @test_throws ErrorException compute_effective_partition_adaptive(
+            F, domain, nothing,
+            initial_depth=2
+        )
+    end
+
+    @testset "compute_effective_partition_adaptive - convergence" begin
+        println("\n--- Testing convergence behavior ---")
+
+        F(x, y) = (0.3*x + 0.35, 0.3*y + 0.35)
+        domain = IntervalBox(interval(0.0, 1.0), interval(0.0, 1.0))
+
+        # Test multiple diameter targets
+        diameters = [0.1, 0.05, 0.025]
+
+        for target_diam in diameters
+            partition, info = compute_effective_partition_adaptive(
+                F, domain, nothing,
+                initial_depth=2,
+                max_diameter=target_diam,
+                verbose=false
+            )
+
+            @test info.partition_diameter <= target_diam
+            println("  Target=$target_diam: achieved=$(round(info.partition_diameter, digits=6)), boxes=$(info.n_boxes_final), levels=$(info.refinement_levels)")
+        end
+
+        # Finer diameter should require more boxes
+        partition_coarse, info_coarse = compute_effective_partition_adaptive(
+            F, domain, nothing,
+            initial_depth=2,
+            max_diameter=0.1,
+            verbose=false
+        )
+
+        partition_fine, info_fine = compute_effective_partition_adaptive(
+            F, domain, nothing,
+            initial_depth=2,
+            max_diameter=0.02,
+            verbose=false
+        )
+
+        @test info_fine.n_boxes_final >= info_coarse.n_boxes_final
+    end
 end

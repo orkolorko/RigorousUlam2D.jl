@@ -36,8 +36,11 @@ export build_noisy_transition_matrix
 export uniform_noise_box, anisotropic_noise_box
 
 # Domain restriction
-export compute_forward_image_enclosure, compute_effective_domain
+export compute_forward_image_enclosure, compute_forward_image_boxes
+export compute_effective_domain, compute_effective_domain_boxes
+export compute_effective_partition, compute_effective_partition_adaptive
 export restrict_partition_to_domain, create_restricted_partition
+export create_partition_from_boxes
 export hull, intersect_boxes
 
 # Boundary conditions

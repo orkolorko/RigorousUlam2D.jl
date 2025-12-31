@@ -14,7 +14,16 @@ makedocs(;
     ),
     pages=[
         "Home" => "index.md",
+        "Getting Started" => "getting_started.md",
+        "User Guide" => [
+            "Enclosure Methods" => "enclosures.md",
+            "Domain Restriction" => "domain_restriction.md",
+            "Noise and Boundary Conditions" => "noise_and_boundaries.md",
+        ],
+        "Examples" => "examples.md",
+        "API Reference" => "api.md",
     ],
+    checkdocs=:exports,  # Only check exported functions
 )
 
 deploydocs(;

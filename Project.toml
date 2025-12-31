@@ -4,12 +4,14 @@ version = "0.0.1-DEV"
 authors = ["Isaia Nisoli"]
 
 [deps]
+ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 IntervalArithmetic = "d1acc4aa-44c8-5952-acd4-ba5d80a2a253"
-IterTools = "c8e1da08-722c-5040-9ed9-7db0dc04731e"
-StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+IntervalBoxes = "43d83c95-ebbb-40ec-8188-24586a1458ed"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 
 [compat]
-IntervalArithmetic = "1.0.1"
-IterTools = "1.10.0"
-StaticArrays = "1.9.15"
+ForwardDiff = "1.2.1"
+IntervalArithmetic = "0.22.36"
+IntervalBoxes = "0.2.2"
 julia = "1.12"

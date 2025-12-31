@@ -113,7 +113,8 @@ end
                             noise::Union{IntervalBox{N}, Nothing}=nothing;
                             enclosure_method=first_order_enclosure,
                             subdivision_depth=2,
-                            safety_margin=1.1) where {N}
+                            safety_margin=1.1,
+                            verbose=false) where {N}
 
 Compute the effective domain for Ulam discretization.
 
@@ -130,6 +131,7 @@ The effective domain is:
 - `enclosure_method`: Method for image computation
 - `subdivision_depth`: Subdivision for tighter enclosure
 - `safety_margin`: Multiplicative expansion factor (default: 1.1 = 10% larger)
+- `verbose`: Print progress information (default: false)
 
 # Returns
 `(effective_domain, image_no_noise, image_with_noise)`
@@ -140,7 +142,7 @@ F(x, y) = (0.5*x + 0.25, 0.5*y + 0.25)
 domain = IntervalBox(interval(0.0, 1.0), interval(0.0, 1.0))
 noise = uniform_noise_box(0.05, 2)
 
-eff_domain, img, img_noisy = compute_effective_domain(F, domain, noise)
+eff_domain, img, img_noisy = compute_effective_domain(F, domain, noise, verbose=true)
 # eff_domain is much smaller than domain, focused on attractor region
 ```
 """
@@ -148,16 +150,30 @@ function compute_effective_domain(F, initial_domain::IntervalBox{N},
                                  noise::Union{IntervalBox{N}, Nothing}=nothing;
                                  enclosure_method=first_order_enclosure,
                                  subdivision_depth=2,
-                                 safety_margin=1.1) where {N}
+                                 safety_margin=1.1,
+                                 verbose=false) where {N}
+
+    if verbose
+        println("Computing effective domain...")
+        println("  Initial domain: $initial_domain")
+    end
 
     # Compute forward image
     image_no_noise = compute_forward_image_enclosure(F, initial_domain;
                                                      enclosure_method=enclosure_method,
                                                      subdivision_depth=subdivision_depth)
 
+    if verbose
+        println("  Image (no noise): $image_no_noise")
+    end
+
     # Add noise if present
     if noise !== nothing
         image_with_noise = minkowski_sum(image_no_noise, noise)
+        if verbose
+            println("  Noise: $noise")
+            println("  Image (with noise): $image_with_noise")
+        end
     else
         image_with_noise = image_no_noise
     end
@@ -173,6 +189,11 @@ function compute_effective_domain(F, initial_domain::IntervalBox{N},
 
     # Intersect with initial domain to stay in bounds
     effective_domain = intersect_boxes(effective_domain, initial_domain)
+
+    if verbose
+        println("  Effective domain: $effective_domain")
+        println("  Reduction factor: $(round(box_measure(initial_domain)/box_measure(effective_domain), digits=2))×")
+    end
 
     return effective_domain, image_no_noise, image_with_noise
 end

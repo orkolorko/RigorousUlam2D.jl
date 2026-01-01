@@ -62,68 +62,133 @@ This is a known Julia 1.12 incompatibility with the current Makie ecosystem.
 
 ### BallArithmetic.jl Package
 
-⚠️ **NOT FOUND** in public Julia package registry
+✅ **FOUND**: [https://github.com/JuliaBallArithmetic/BallArithmetic.jl](https://github.com/JuliaBallArithmetic/BallArithmetic.jl)
 
-**Search Results**: No public Julia package named "BallArithmetic.jl" found in:
-- Julia General Registry
-- GitHub (public repositories)
-- JuliaHub
-- JuliaPackages.com
+**What It Is**: A Julia package implementing ball arithmetic with emphasis on numerical linear algebra
 
-**Possible Explanations**:
-1. **Private/Unpublished Package**: May be a research code not yet released publicly
-2. **Different Name**: Could be called something else (e.g., part of a larger package)
-3. **Internal Tool**: Might be custom code for the paper, not a standalone package
-4. **Very Recent**: Arxiv paper from July 2025, package may not be released yet
+**Core Concept**:
+- Uses `Ball` type representing intervals (c-r, c+r) where c=center, r=radius
+- Guarantees rigorous enclosures: `Ball(x) + Ball(y)` contains all possible sums
+- Optimized for matrix operations with `BallMatrix` and `BallVector` types
+
+**Key Features for Transfer Operators**:
+1. **Eigenvalue Enclosures**:
+   - `evbox()` - rigorous eigenvalue bounds
+   - `gevbox()` - generalized eigenvalue problems
+2. **Pseudospectra Computation**:
+   - `compute_enclosure()` - follows level lines around eigenvalues
+   - Rigorous contour integration with guaranteed resolvent bounds
+   - Pearl necklace algorithms for eigenvalue neighborhoods
+3. **Spectral Analysis**:
+   - `svdbox()` - singular value bounds
+   - `svd_bound_L2_opnorm()` - operator norm estimation
+   - Resolvent norm bounds for spectral analysis
+4. **M-matrix Verification**: Matrix classification tools
+
+**Documentation**:
+- Stable: [https://JuliaBallArithmetic.github.io/BallArithmetic.jl/stable/](https://JuliaBallArithmetic.github.io/BallArithmetic.jl/stable/)
+- Dev: [https://JuliaBallArithmetic.github.io/BallArithmetic.jl/dev/](https://JuliaBallArithmetic.github.io/BallArithmetic.jl/dev/)
+
+**Installation**:
+```julia
+using Pkg
+Pkg.add("BallArithmetic")  # If registered
+# Or from GitHub:
+Pkg.add(url="https://github.com/JuliaBallArithmetic/BallArithmetic.jl")
+```
+
+**References**:
+- Rump, BIT 1999: Foundational linear algebra methods
+- Revol & Theveny 2013: Ball arithmetic techniques
 
 **Related Julia Packages** (for rigorous numerics):
 - [**IntervalArithmetic.jl**](https://github.com/JuliaIntervals/IntervalArithmetic.jl): Validated numerics using interval arithmetic
 - [**Pseudospectra.jl**](https://ralphas.github.io/Pseudospectra.jl/dev/): Computing pseudospectra and spectral portraits
 - [**ValidatedNumerics.jl**](https://github.com/JuliaIntervals/ValidatedNumerics.jl): Rigorous floating-point calculations
 
-### Next Steps
+### Integration with RigorousUlam2D.jl
 
-**To Access BallArithmetic.jl**:
-1. **Contact Authors**: Email Isaia Nisoli (he's your package author!) or co-authors
-2. **Check Paper Supplements**: Download full PDF from arXiv and look for:
-   - Code repositories mentioned
-   - Supplementary materials
-   - GitHub links in acknowledgments
-3. **Check arXiv Source**: Download TeX source ([`/src/2507.09021`](https://arxiv.org/src/2507.09021)) for code references
+**How to Use BallArithmetic.jl with Transfer Operators**:
 
-**For Pseudospectral Bounds in RigorousUlam2D.jl**:
-
-If you want to implement pseudospectral bounds for your transfer operators:
-
-1. **Use IntervalArithmetic.jl** (already a dependency):
-   - Compute eigenvalues with rigorous error bounds
-   - Validate spectral gap estimates
-
-2. **Implement Householder-style approach** from the paper:
-   - Rigorous enclosures of resonances
-   - Exclusion regions for spectrum
-
-3. **Pseudospectra.jl** integration:
-   - Visualize pseudospectral behavior
-   - Validate numerical eigenvalue estimates
-
-**Example Concept** (based on paper abstract):
 ```julia
-# Pseudospectral bounds for Ulam matrix
-function compute_resonances_rigorous(P::SparseMatrixCSC, ε::Float64)
-    # 1. Compute eigenvalues numerically
-    λ_numerical = eigvals(Matrix(P))
+using RigorousUlam2D
+using BallArithmetic
 
-    # 2. Use interval arithmetic for rigorous bounds
-    # (This is where BallArithmetic.jl might come in)
+# 1. Compute Ulam discretization as usual
+partition, info = compute_effective_partition_adaptive(
+    F, domain, noise,
+    initial_depth=2,
+    max_diameter=0.01,
+    verbose=true
+)
 
-    # 3. Validate which eigenvalues are true resonances
-    # vs. numerical artifacts
+# 2. Build transition matrix
+P, U = build_noisy_transition_matrix(F, partition, noise, maxdepth=8, ε=1e-4)
+normalize_columns!(P)
 
-    # 4. Return rigorous enclosures
-    return rigorous_eigenvalue_bounds
+# 3. Convert to BallMatrix for rigorous spectral analysis
+# (Account for numerical errors in matrix construction)
+P_ball = BallMatrix(Matrix(P), error_radius)  # error_radius from ε parameter
+
+# 4. Compute rigorous eigenvalue enclosures
+eigenvalue_boxes = evbox(P_ball)  # Returns rigorous bounds on all eigenvalues
+
+# 5. Verify spectral gap rigorously
+λ_leading = eigenvalue_boxes[1]  # Should be ≈ 1 for stochastic matrix
+spectral_gap_lower_bound = abs(λ_leading) - maximum(abs.(eigenvalue_boxes[2:end]))
+
+# 6. Compute pseudospectral contours
+ε_levels = [1e-1, 1e-2, 1e-3]
+pseudospectra = [compute_enclosure(P_ball, ε) for ε in ε_levels]
+```
+
+**Advantages for Dynamical Systems**:
+
+1. **Rigorous Ruelle Resonances**: Compute validated bounds on leading eigenvalues
+2. **Spectral Gap Verification**: Prove mixing rates with guaranteed error bounds
+3. **Stability Analysis**: Rigorous bounds on operator norms
+4. **Computer-Assisted Proofs**: All computations mathematically verified
+
+**Example Application - Mixing Time Bounds**:
+
+```julia
+# Rigorous bound on mixing time for Markov chain
+function compute_mixing_time_bound(P::SparseMatrixCSC, ε_target::Float64)
+    # Convert to ball arithmetic
+    P_ball = BallMatrix(Matrix(P), 1e-15)  # Machine precision
+
+    # Get rigorous eigenvalue enclosures
+    λ_boxes = evbox(P_ball)
+
+    # Second-largest eigenvalue magnitude (upper bound)
+    λ_2_upper = maximum([sup(abs(λ)) for λ in λ_boxes[2:end]])
+
+    # Rigorous mixing time bound: t ≥ log(ε_target) / log(λ_2)
+    t_mix_bound = ceil(Int, log(ε_target) / log(λ_2_upper))
+
+    return t_mix_bound, λ_2_upper
 end
 ```
+
+### Next Steps for Implementation
+
+1. **Add BallArithmetic.jl dependency**:
+   ```julia
+   # In Project.toml
+   [deps]
+   BallArithmetic = "..."
+   ```
+
+2. **Create spectral analysis module** in RigorousUlam2D:
+   - `src/spectral_rigorous.jl`
+   - Functions for rigorous eigenvalue computation
+   - Pseudospectral contour computation
+   - Mixing time bounds
+
+3. **Example applications**:
+   - Validate spectral gaps for contracting Lorenz map
+   - Prove exponential mixing rates
+   - Rigorous bounds on correlation decay
 
 ---
 

@@ -11,8 +11,9 @@ Ulam method, including:
 using IntervalArithmetic, IntervalBoxes
 using SparseArrays
 
-export minkowski_sum, noisy_image
-export convolve_transition_matrix, add_noise_to_partition
+export minkowski_sum, noisy_image, noisy_rel_size
+export uniform_noise_box, anisotropic_noise_box
+export build_noise_convolution_operator
 
 """
     minkowski_sum(A::IntervalBox{N}, B::IntervalBox{N}) where {N}
@@ -131,11 +132,8 @@ function noisy_rel_size(F, Q_source::IntervalBox{N}, Q_target::IntervalBox{N},
     end
 
     # Bisect and recurse
-    if N == 2
-        sub_boxes = quadrisect(Q_source)
-    else
-        sub_boxes = collect(bisect_box(Q_source))
-    end
+    left, right = bisect_box(Q_source)
+    sub_boxes = [left, right]
 
     total_lower = 0.0
     total_upper = 0.0
@@ -154,108 +152,109 @@ function noisy_rel_size(F, Q_source::IntervalBox{N}, Q_target::IntervalBox{N},
 end
 
 """
-    build_noisy_transition_matrix(F, partition::UlamPartition{N},
-                                  noise::IntervalBox{N}; kwargs...) where {N}
+    build_noise_convolution_operator(noise::IntervalBox{N}, partition::UlamPartition{N};
+                                     periodic::Bool=false,
+                                     transition_graph::Union{SparseMatrixCSC{Bool},Nothing}=nothing) where {N}
 
-Build a transition matrix for a system with additive noise.
+Build the noise convolution operator N on a partition.
 
-This is similar to `build_transition_matrix` but uses `noisy_rel_size`
-to account for the noise in the dynamics.
+This operator represents the spreading of mass due to additive noise. Given a probability
+distribution μ on the partition, N*μ gives the distribution after convolving with noise.
+
+For uniform noise ξ ∼ Uniform(noise), the operator N[i,j] represents the fraction of
+box j that, after adding noise ξ, lands in box i.
 
 # Arguments
-- `F`: Deterministic part of the map
-- `partition`: Phase space partition
-- `noise`: Noise box (support of uniform noise distribution)
-- Additional kwargs passed to `noisy_rel_size`
+- `noise`: Noise support box (e.g., from uniform_noise_box)
+- `partition`: The partition of phase space
+- `periodic`: If true, apply periodic boundary conditions (wrap to torus)
+- `transition_graph`: Optional sparsity pattern. If provided, only computes entries
+                      where boxes can overlap after noise addition.
 
 # Returns
-- `P`: Sparse transition matrix
-- `U`: Uncertainty matrix
+- `N`: Sparse noise convolution operator (n × n)
 
 # Example
 ```julia
-F(x, y) = (2*x*(1-x), 0.5*y)
-partition = UlamPartition(boxes, domain)
-noise = IntervalBox(interval(-0.01, 0.01), interval(-0.01, 0.01))
-P, U = build_noisy_transition_matrix(F, partition, noise)
+noise = uniform_noise_box(0.01, 2)
+partition, graph = build_adaptive_partition(F, domain, noise, max_diameter=0.05, periodic=true)
+N = build_noise_convolution_operator(noise, partition, periodic=true, transition_graph=graph)
 ```
+
+# Note
+The noise operator is independent of the dynamics F. It only depends on the noise
+distribution and the partition geometry.
 """
-function build_noisy_transition_matrix(F, partition::UlamPartition{N},
-                                      noise::IntervalBox{N};
-                                      enclosure_method=first_order_enclosure,
-                                      ε=1e-6, maxdepth=30,
-                                      use_lower_bound=true) where {N}
+function build_noise_convolution_operator(noise::IntervalBox{N}, partition::UlamPartition{N};
+                                         periodic::Bool=false,
+                                         transition_graph::Union{SparseMatrixCSC{Bool},Nothing}=nothing) where {N}
 
     n = partition.n_boxes
     I_indices = Int[]
     J_indices = Int[]
     values = Float64[]
-    uncertainties_I = Int[]
-    uncertainties_J = Int[]
-    uncertainties_vals = Float64[]
 
-    for j in 1:n
-        Q_source = partition.boxes[j]
-        source_measure = box_measure(Q_source)
+    # Helper: compute fraction of source_box + noise that intersects target_box
+    function noise_overlap(source_box::IntervalBox{N}, target_box::IntervalBox{N})
+        # The noisy box is source_box ⊕ noise (Minkowski sum)
+        noisy_box = minkowski_sum(source_box, noise)
 
-        if source_measure == 0
-            continue
+        # Apply boundary conditions
+        if periodic
+            noisy_box = apply_periodic_bc(noisy_box, partition.domain)
         end
 
-        for i in 1:n
-            Q_target = partition.boxes[i]
+        # Compute intersection with target
+        intersection = intersect_boxes(noisy_box, target_box)
 
-            lower, upper, _ = noisy_rel_size(F, Q_source, Q_target, noise;
-                                            enclosure_method=enclosure_method,
-                                            ε=ε, maxdepth=maxdepth)
+        if is_empty_box(intersection)
+            return 0.0
+        end
 
-            transition_measure = use_lower_bound ? lower : upper
-            uncertainty = upper - lower
+        # Fraction = measure(intersection) / measure(noisy_box)
+        return box_measure(intersection) / box_measure(noisy_box)
+    end
 
-            if transition_measure > 0
-                push!(I_indices, i)
-                push!(J_indices, j)
-                push!(values, transition_measure / source_measure)
+    if transition_graph !== nothing
+        # Use graph to skip zero entries
+        rows = rowvals(transition_graph)
+        for j in 1:n
+            source_box = partition.boxes[j]
+
+            for idx in nzrange(transition_graph, j)
+                i = rows[idx]
+                target_box = partition.boxes[i]
+
+                overlap = noise_overlap(source_box, target_box)
+
+                if overlap > 0
+                    push!(I_indices, i)
+                    push!(J_indices, j)
+                    push!(values, overlap)
+                end
             end
+        end
+    else
+        # No graph: check all pairs
+        for j in 1:n
+            source_box = partition.boxes[j]
 
-            if uncertainty > 0
-                push!(uncertainties_I, i)
-                push!(uncertainties_J, j)
-                push!(uncertainties_vals, uncertainty / source_measure)
+            for i in 1:n
+                target_box = partition.boxes[i]
+
+                overlap = noise_overlap(source_box, target_box)
+
+                if overlap > 0
+                    push!(I_indices, i)
+                    push!(J_indices, j)
+                    push!(values, overlap)
+                end
             end
         end
     end
 
-    P = sparse(I_indices, J_indices, values, n, n)
-    U = sparse(uncertainties_I, uncertainties_J, uncertainties_vals, n, n)
-
-    return P, U
-end
-
-"""
-    convolve_transition_matrix(P::AbstractMatrix, noise_kernel::AbstractMatrix)
-
-Convolve a transition matrix with a noise kernel.
-
-This is an alternative approach to handling noise: instead of computing
-noisy images directly, first compute the deterministic transition matrix,
-then convolve with a discretized noise distribution.
-
-# Arguments
-- `P`: Deterministic transition matrix (n × n)
-- `noise_kernel`: Discretized noise distribution (m × m, typically small)
-
-# Returns
-A convolved transition matrix accounting for the noise.
-
-# Note
-This method is more efficient when the noise is small and can be
-represented on a coarse grid. For larger noise, use `build_noisy_transition_matrix`.
-"""
-function convolve_transition_matrix(P::AbstractMatrix, noise_kernel::AbstractMatrix)
-    # TODO: Implement proper convolution for sparse matrices
-    # This is a placeholder for future implementation
-    error("Convolution method not yet implemented. Use build_noisy_transition_matrix instead.")
+    N_op = sparse(I_indices, J_indices, values, n, n)
+    return N_op
 end
 
 """

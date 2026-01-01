@@ -203,11 +203,8 @@ function noisy_rel_size_periodic(F, Q_source::IntervalBox{N}, Q_target::Interval
     end
 
     # Bisect and recurse
-    if N == 2
-        sub_boxes = quadrisect(Q_source)
-    else
-        sub_boxes = collect(bisect_box(Q_source))
-    end
+    left, right = bisect_box(Q_source)
+    sub_boxes = [left, right]
 
     total_lower = 0.0
     total_upper = 0.0

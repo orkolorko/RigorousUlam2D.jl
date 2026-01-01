@@ -53,12 +53,18 @@ function partition_index(partition::UlamPartition{N}, point::IntervalBox{N}) whe
 end
 
 """
-    build_transition_matrix(F, partition::UlamPartition{N};
+    build_transition_matrix(F, partition::UlamPartition{N},
+                           noise::Union{IntervalBox{N}, Nothing}=nothing;
                            enclosure_method=first_order_enclosure,
                            ε=1e-6, maxdepth=30,
-                           use_lower_bound=true) where {N}
+                           use_lower_bound=true,
+                           periodic::Bool=false,
+                           transition_graph::Union{SparseMatrixCSC{Bool},Nothing}=nothing) where {N}
 
 Construct a sparse transition matrix for the Ulam approximation of the map F.
+
+This unified function handles both deterministic and noisy systems, with optional
+sparsity pattern optimization via a transition graph.
 
 Returns a sparse matrix P where P[i,j] represents the (rigorous) transition
 probability from partition element j to partition element i.
@@ -66,36 +72,46 @@ probability from partition element j to partition element i.
 # Arguments
 - `F`: The dynamical system (function mapping R^N → R^N)
 - `partition`: The partition of the phase space
+- `noise`: Noise support box (optional, for stochastic systems)
 - `enclosure_method`: Method for computing rigorous image enclosures
-- `ε`: Tolerance for adaptive refinement in rel_size
+- `ε`: Tolerance for adaptive refinement
 - `maxdepth`: Maximum depth for adaptive refinement
 - `use_lower_bound`: If true, use lower bounds (verified transitions only)
                      If false, use upper bounds (includes uncertainties)
+- `periodic`: If true, apply periodic boundary conditions (wrap images to torus)
+- `transition_graph`: Optional boolean sparsity pattern from build_adaptive_partition.
+                      If provided, only computes rel_size for potential transitions,
+                      dramatically reducing computation time.
 
 # Returns
 - `P`: Sparse transition matrix (n_boxes × n_boxes)
-- `uncertainties`: Matrix of uncertainty measures (upper - lower bounds)
+- `U`: Uncertainty matrix (upper - lower bounds)
 
-# Example
+# Examples
 ```julia
+# Deterministic system with absorbing BC
 F(x, y) = (2*x*(1-x), 0.5*y)
-partition = UlamPartition(boxes, domain)
-P, uncertainties = build_transition_matrix(F, partition)
+partition = build_uniform_partition(domain, 4)
+P, U = build_transition_matrix(F, partition)
+
+# Noisy system with periodic BC
+partition, graph = build_adaptive_partition(F, domain, noise, max_diameter=0.05, periodic=true)
+P, U = build_transition_matrix(F, partition, noise, periodic=true, transition_graph=graph)
 ```
 
 # Note
-The matrix is initially constructed in column-major order (transitions FROM column index).
+The matrix is constructed in column-major order (transitions FROM column index).
 Use `normalize_columns!` to convert to a column-stochastic matrix.
 """
-function build_transition_matrix(F, partition::UlamPartition{N};
+function build_transition_matrix(F, partition::UlamPartition{N},
+                                noise::Union{IntervalBox{N}, Nothing}=nothing;
                                 enclosure_method=first_order_enclosure,
                                 ε=1e-6, maxdepth=30,
-                                use_lower_bound=true) where {N}
+                                use_lower_bound=true,
+                                periodic::Bool=false,
+                                transition_graph::Union{SparseMatrixCSC{Bool},Nothing}=nothing) where {N}
 
     n = partition.n_boxes
-
-    # Use sparse matrix for efficiency
-    # Preallocate with estimated non-zeros (assume ~10% sparsity)
     I_indices = Int[]
     J_indices = Int[]
     values = Float64[]
@@ -103,40 +119,113 @@ function build_transition_matrix(F, partition::UlamPartition{N};
     uncertainties_J = Int[]
     uncertainties_vals = Float64[]
 
-    # Build the matrix column by column
-    # P[i,j] = measure of Q_j that maps to Q_i
-    for j in 1:n
-        Q_source = partition.boxes[j]
-        source_measure = box_measure(Q_source)
-
-        if source_measure == 0
-            continue  # Skip empty boxes
+    # Select appropriate rel_size function based on noise and boundary conditions
+    compute_rel_size = if periodic
+        # Periodic boundary conditions
+        if noise === nothing
+            # Deterministic with periodic BC - need to wrap images
+            (F, Q_source, Q_target) -> begin
+                # Compute image
+                image = enclosure_method(F, Q_source)
+                image_box = image isa Tuple ? IntervalBox(image...) : image
+                # Wrap to torus
+                wrapped = apply_periodic_bc(image_box, partition.domain)
+                # Use standard rel_size on wrapped image (as if from identity map)
+                # This is conservative but correct
+                if issubset_box(wrapped, Q_target)
+                    measure = box_measure(Q_source)
+                    return (measure, measure, IntervalBox{N}[])
+                elseif isdisjoint_box(wrapped, Q_target)
+                    return (0.0, 0.0, IntervalBox{N}[])
+                else
+                    # Uncertain - subdivide source and recurse
+                    # For now, use upper bound = full measure (conservative)
+                    measure = box_measure(Q_source)
+                    return (0.0, measure, [Q_source])
+                end
+            end
+        else
+            # Noisy with periodic BC
+            (F, Q_source, Q_target) -> noisy_rel_size_periodic(F, Q_source, Q_target, noise, partition.domain;
+                                                                enclosure_method=enclosure_method,
+                                                                ε=ε, maxdepth=maxdepth)
         end
+    else
+        # Absorbing boundary conditions (default)
+        if noise === nothing
+            (F, Q_source, Q_target) -> rel_size(F, Q_source, Q_target;
+                                                enclosure_method=enclosure_method,
+                                                ε=ε, maxdepth=maxdepth)
+        else
+            (F, Q_source, Q_target) -> noisy_rel_size(F, Q_source, Q_target, noise;
+                                                       enclosure_method=enclosure_method,
+                                                       ε=ε, maxdepth=maxdepth)
+        end
+    end
 
-        for i in 1:n
-            Q_target = partition.boxes[i]
+    # If transition graph is provided, use it to skip zero entries
+    if transition_graph !== nothing
+        rows = rowvals(transition_graph)
+        for j in 1:n
+            Q_source = partition.boxes[j]
+            source_measure = box_measure(Q_source)
 
-            # Compute rigorous transition measure
-            lower, upper, uncertain_boxes = rel_size(F, Q_source, Q_target;
-                                                     enclosure_method=enclosure_method,
-                                                     ε=ε, maxdepth=maxdepth)
-
-            # Choose bound based on preference
-            transition_measure = use_lower_bound ? lower : upper
-            uncertainty = upper - lower
-
-            # Only add non-zero entries
-            if transition_measure > 0
-                push!(I_indices, i)
-                push!(J_indices, j)
-                push!(values, transition_measure / source_measure)
+            if source_measure == 0
+                continue
             end
 
-            # Track uncertainties
-            if uncertainty > 0
-                push!(uncertainties_I, i)
-                push!(uncertainties_J, j)
-                push!(uncertainties_vals, uncertainty / source_measure)
+            # Only check boxes that can potentially receive mass from j
+            for idx in nzrange(transition_graph, j)
+                i = rows[idx]
+                Q_target = partition.boxes[i]
+
+                lower, upper, _ = compute_rel_size(F, Q_source, Q_target)
+
+                transition_measure = use_lower_bound ? lower : upper
+                uncertainty = upper - lower
+
+                if transition_measure > 0
+                    push!(I_indices, i)
+                    push!(J_indices, j)
+                    push!(values, transition_measure / source_measure)
+                end
+
+                if uncertainty > 0
+                    push!(uncertainties_I, i)
+                    push!(uncertainties_J, j)
+                    push!(uncertainties_vals, uncertainty / source_measure)
+                end
+            end
+        end
+    else
+        # No graph: check all pairs (original behavior)
+        for j in 1:n
+            Q_source = partition.boxes[j]
+            source_measure = box_measure(Q_source)
+
+            if source_measure == 0
+                continue
+            end
+
+            for i in 1:n
+                Q_target = partition.boxes[i]
+
+                lower, upper, _ = compute_rel_size(F, Q_source, Q_target)
+
+                transition_measure = use_lower_bound ? lower : upper
+                uncertainty = upper - lower
+
+                if transition_measure > 0
+                    push!(I_indices, i)
+                    push!(J_indices, j)
+                    push!(values, transition_measure / source_measure)
+                end
+
+                if uncertainty > 0
+                    push!(uncertainties_I, i)
+                    push!(uncertainties_J, j)
+                    push!(uncertainties_vals, uncertainty / source_measure)
+                end
             end
         end
     end

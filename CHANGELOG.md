@@ -6,6 +6,104 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+#### Unified Architecture with Periodic Boundary Conditions (2026-01-01)
+
+**Unified Transition Matrix Builder**
+- **Merged** `build_transition_matrix` and `build_noisy_transition_matrix` into single unified function
+- Single interface handles both deterministic and noisy systems
+- Operator decomposition: `P_noisy = N ∘ P` where N is noise convolution, P is deterministic
+- Added `periodic::Bool` parameter for boundary condition control
+- Automatic selection of appropriate `rel_size` variant based on noise and BC
+
+**Periodic Boundary Condition Support**
+- Added `periodic` parameter to all three main functions:
+  - `build_adaptive_partition(F, domain, noise; periodic=true/false)`
+  - `build_transition_matrix(F, partition, noise; periodic=true/false)`
+  - `build_noise_convolution_operator(noise, partition; periodic=true/false)`
+- When `periodic=true`: Images wrapped to torus using `apply_periodic_bc`
+- When `periodic=false`: Absorbing BC (mass escaping domain is lost)
+- Graph tracks ALL potential transitions (including escapes for absorbing BC)
+
+**Graph-Based Sparsity Optimization**
+- `build_adaptive_partition` returns `(partition, transition_graph)`
+- Boolean sparse matrix encodes which boxes can potentially interact
+- Transition graph respects boundary conditions (wraps for periodic, tracks escapes for absorbing)
+- Both assemblers accept `transition_graph` parameter for dramatic speedup
+- Only computes `rel_size` for box pairs with potential transitions
+
+**Noise Convolution Operator**
+- New `build_noise_convolution_operator(noise, partition; periodic, transition_graph)`
+- Independent of dynamics F - pure geometry of noise spreading
+- Allows operator composition: `P_noisy = N * P`
+- Respects boundary conditions via `periodic` parameter
+
+**Greedy Subdivision**
+- Fixed non-greedy bisection in `build_adaptive_partition`
+- Only subdivides boxes violating diameter criterion
+- Boxes already meeting target kept as-is
+- More efficient convergence to target partition
+
+**Consistent Bisection in Assemblers**
+- Removed `quadrisect` from `noisy_rel_size` and `noisy_rel_size_periodic`
+- Now uses consistent `bisect_box` everywhere
+- Simpler, dimension-agnostic code
+
+**Code Cleanup**
+- Removed non-existent `adaptive_partition` from exports
+- Deleted backup files: `adaptive_enclosure.jl.old`, `test_adaptive_enclosure.jl.old`
+- Cleaned up deprecated domain restriction module
+
+**Files Modified**
+- `src/partition_utils.jl`: Added `periodic` parameter to `build_adaptive_partition`
+- `src/sparse_ulam.jl`: Unified transition matrix builder with BC support
+- `src/noise_convolution.jl`: Added noise operator builder, removed `quadrisect`
+- `src/boundary_conditions.jl`: Removed `quadrisect` from `noisy_rel_size_periodic`
+- `src/domain_restriction.jl`: Now minimal stub (deprecated)
+- `src/RigorousUlam2D.jl`: Updated exports
+
+#### Major Refactoring: Elimination of Double Refinement and Anisotropic Diameter Control (2026-01-01)
+
+**Eliminated Double Refinement Inefficiency**
+- **Removed** `adaptive_enclosure.jl` module (redundant and inefficient)
+  - Old workflow: subdivide → compute sub-images → take hull → lose precision → subdivide again
+  - New workflow: `rel_size` computes enclosures directly without intermediate hulls
+  - Result: No precision loss, no redundant work, significant performance improvement
+- **Removed** `adaptive_partition` function from `adaptive_refinement.jl`
+  - Superseded by superior `compute_effective_partition_adaptive`
+  - Crude expansion-ratio heuristic replaced by rigorous forward flagging
+
+**Consistent Bisection Strategy**
+- Replaced mixed use of `quadrisect` (N=2 only) and `bisect_box`
+- Now uses `bisect_box` everywhere for dimension-agnostic behavior
+- Benefits:
+  - Bisects along widest dimension automatically
+  - Better for anisotropic problems
+  - Consistent behavior across all dimensions
+  - Simpler, cleaner code
+
+**Anisotropic Diameter Control**
+- **New method**: `compute_effective_partition_adaptive` with vector of max diameters
+- Allows different diameter targets per coordinate direction
+- Syntax: `compute_effective_partition_adaptive(F, domain, noise, [0.01, 0.05], ...)`
+- Use case: Dynamics with different scales in different directions (e.g., strong contraction in x, weak in y)
+- Returns `max_widths_per_dimension` in info tuple
+
+**Files Modified**
+- `src/adaptive_refinement.jl`: Removed `adaptive_partition`, uses `bisect_box` consistently
+- `src/domain_restriction.jl`: Added anisotropic variant, uses `bisect_box` consistently
+- `src/RigorousUlam2D.jl`: Removed adaptive_enclosure exports
+- `test/test_domain_restriction.jl`: Adjusted test parameters for bisect_box behavior
+
+**Files Removed**
+- `src/adaptive_enclosure.jl` (renamed to .old)
+- `test/test_adaptive_enclosure.jl` (renamed to .old)
+
+**Notebook Fixes**
+- Fixed CairoMakie compatibility issue with Julia 1.12
+- Upgraded CairoMakie from v0.12 to v0.15.8
+- Removed IJulia dependency (using VSCode Julia extension instead)
+- Fixed `partition_normal` reference error in contracting_lorenz_comparison.ipynb
+
 #### Diameter-Based Partition Stopping (2025-12-31)
 - **New feature**: `max_diameter` parameter in `create_restricted_partition`
 - Direct control over approximation error based on theoretical bounds from PDF

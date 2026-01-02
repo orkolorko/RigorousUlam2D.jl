@@ -1,6 +1,7 @@
 using IntervalArithmetic, IntervalBoxes
 using RigorousUlam2D
 using SparseArrays
+using LinearAlgebra
 using Test
 
 @testset "Noise Convolution" begin
@@ -64,36 +65,27 @@ using Test
         @test sup(noisy[2]) ≈ 0.7
     end
 
-    @testset "noisy_rel_size" begin
-        F_id(x, y) = (x, y)
+    # DEPRECATED: Tests for noisy_rel_size removed.
+    # This function computed the annealed operator (F + noise) and violated the operator
+    # decomposition architecture. Use operator composition instead: P_noisy = N * P
 
-        source = IntervalBox(interval(0.3, 0.4), interval(0.3, 0.4))
-        target = IntervalBox(interval(0.0, 1.0), interval(0.0, 1.0))
+    @testset "build_noise_convolution_operator" begin
         noise = uniform_noise_box(0.05, 2)
 
-        lower, upper, uncertain = noisy_rel_size(F_id, source, target, noise, maxdepth=5)
+        boxes = quadrisect(IntervalBox(interval(0.0, 1.0), interval(0.0, 1.0)))
+        domain = IntervalBox(interval(0.0, 1.0), interval(0.0, 1.0))
+        partition = UlamPartition(boxes, domain)
 
-        # With small noise, should still map mostly into large target
-        @test lower > 0.0
-        @test upper >= lower
-        @test upper <= box_measure(source)
+        N = build_noise_convolution_operator(noise, partition)
+
+        @test size(N) == (4, 4)
+        @test issparse(N)
+
+        # Diagonal should dominate with small noise
+        @test all(N[i, i] > 0 for i in 1:4)
     end
 
-    @testset "noisy_rel_size escaping" begin
-        F_id(x, y) = (x, y)
-
-        # Source near edge, target small - noise might push it out
-        source = IntervalBox(interval(0.9, 1.0), interval(0.9, 1.0))
-        target = IntervalBox(interval(0.0, 0.5), interval(0.0, 0.5))
-        noise = uniform_noise_box(0.2, 2)  # Large noise
-
-        lower, upper, uncertain = noisy_rel_size(F_id, source, target, noise, maxdepth=6)
-
-        # Most points should NOT map into target (source far from target)
-        @test upper <= box_measure(source)
-    end
-
-    @testset "build_noisy_transition_matrix" begin
+    @testset "noisy transition matrix via operator composition" begin
         F_id(x, y) = (x, y)
 
         boxes = quadrisect(IntervalBox(interval(0.0, 1.0), interval(0.0, 1.0)))
@@ -102,17 +94,23 @@ using Test
 
         noise = uniform_noise_box(0.05, 2)
 
-        P, U = build_noisy_transition_matrix(F_id, partition, noise, maxdepth=5, ε=1e-3)
+        # Build deterministic transition matrix
+        P, U = build_transition_matrix(F_id, partition, maxdepth=5, ε=1e-3)
 
-        @test size(P) == (4, 4)
-        @test issparse(P)
+        # Build noise convolution operator
+        N = build_noise_convolution_operator(noise, partition)
+
+        # Compose: P_noisy = N * P
+        P_noisy = N * P
+
+        @test size(P_noisy) == (4, 4)
+        @test issparse(P_noisy)
 
         # With identity + small noise, diagonal should still dominate
-        @test all(P[i, i] > 0 for i in 1:4)
+        @test all(P_noisy[i, i] > 0 for i in 1:4)
 
         # Noise causes diffusion - off-diagonal may have some mass
-        # (but with very small noise and coarse partition, might be zero)
-        total_off_diagonal = sum(P[i, j] for i in 1:4 for j in 1:4 if i != j)
+        total_off_diagonal = sum(P_noisy[i, j] for i in 1:4 for j in 1:4 if i != j)
         @test total_off_diagonal >= 0  # Just check it's non-negative
     end
 
@@ -123,14 +121,60 @@ using Test
         domain = IntervalBox(interval(0.0, 1.0), interval(0.0, 1.0))
         partition = UlamPartition(boxes, domain)
 
+        noise = uniform_noise_box(0.05, 2)
+
         # Deterministic
         P_det, _ = build_transition_matrix(F, partition, maxdepth=5, ε=1e-3)
 
-        # With noise
-        noise = uniform_noise_box(0.05, 2)
-        P_noisy, _ = build_noisy_transition_matrix(F, partition, noise, maxdepth=5, ε=1e-3)
+        # Build noisy matrix using operator composition
+        N = build_noise_convolution_operator(noise, partition)
+        P_noisy = N * P_det
 
         # Noisy matrix should have more non-zero entries (diffusion)
         @test nnz(P_noisy) >= nnz(P_det)
+    end
+
+    @testset "contracting map stationary measure" begin
+        # F(x,y) = (0.5x + 0.25, 0.5y + 0.25) contracts to fixed point (0.5, 0.5)
+        # Theoretical stationary measure: noise kernel centered at (0.5, 0.5)
+        F(x, y) = (0.5 * x + 0.25, 0.5 * y + 0.25)
+
+        domain = IntervalBox(interval(0.0, 1.0), interval(0.0, 1.0))
+        noise = uniform_noise_box(0.01, 2)  # Small noise
+
+        # Build adaptive partition
+        partition, graph = build_adaptive_partition(F, domain, noise,
+                                                    initial_depth=2,
+                                                    max_diameter=0.05)
+
+        # Build operators
+        P_det, _ = build_transition_matrix(F, partition, transition_graph=graph,
+                                          maxdepth=8, ε=1e-4)
+        N = build_noise_convolution_operator(noise, partition, transition_graph=graph,
+                                            ε=1e-5, max_iterations=20)
+        P_noisy = N * P_det
+
+        # Normalize to get stochastic matrix
+        normalize_columns!(P_noisy)
+
+        # Compute invariant measure (leading eigenvector)
+        eigvals, eigvecs = eigen(Matrix(P_noisy))
+
+        # Find eigenvalue closest to 1
+        idx = argmin(abs.(eigvals .- 1.0))
+        invariant_measure = real(eigvecs[:, idx])
+        invariant_measure ./= sum(invariant_measure)  # Normalize to probability
+
+        # Theoretical: stationary measure should be concentrated near (0.5, 0.5)
+        # Find boxes containing (0.5, 0.5)
+        fixed_point = IntervalBox(interval(0.49, 0.51), interval(0.49, 0.51))
+        boxes_near_fixed_point = findall(box -> !isdisjoint_box(box, fixed_point),
+                                         partition.boxes)
+
+        # Mass should concentrate near the fixed point
+        mass_near_fixed_point = sum(invariant_measure[boxes_near_fixed_point])
+
+        @test mass_near_fixed_point > 0.3  # Significant mass near fixed point
+        @test abs(eigvals[idx] - 1.0) < 1e-6  # Leading eigenvalue should be ~1
     end
 end

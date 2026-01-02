@@ -5,44 +5,47 @@ This module implements the core algorithm for the rigorous Ulam method:
 computing the relative size (measure) of points in one partition element
 that map into another partition element under a given dynamical system.
 
-The implementation avoids double refinement by directly working with subdivided
-images rather than taking hulls and re-subdividing.
+The implementation uses an iterative greedy algorithm with a priority queue,
+processing largest boxes first to avoid stack overflow and provide better
+control over the refinement process.
 """
 
 using IntervalArithmetic, IntervalBoxes
+using DataStructures  # For PriorityQueue
 
 export rel_size
 
 """
     rel_size(F, Q_source::IntervalBox, Q_target::IntervalBox;
              enclosure_method=first_order_enclosure,
-             ε=1e-6, maxdepth=30, depth=0)
+             ε=1e-6, max_iterations=100000)
 
-Compute a rigorous enclosure of the measure of points in `Q_source`
+Compute a rigorous enclosure of the relative measure of points in `Q_source`
 that map under `F` into `Q_target`.
 
 Returns `(lower_bound, upper_bound, uncertain_boxes)` where:
-- `lower_bound`: Guaranteed lower bound on the measure
-- `upper_bound`: Guaranteed upper bound on the measure
-- `uncertain_boxes`: List of boxes that couldn't be decided (at maxdepth)
+- `lower_bound`: Guaranteed lower bound on the relative measure (in [0,1])
+- `upper_bound`: Guaranteed upper bound on the relative measure (in [0,1])
+- `uncertain_boxes`: List of boxes that couldn't be decided
 
 # Algorithm
-Uses adaptive bisection with three cases at each step:
-1. If F(box) ⊆ Q_target: box definitely maps in → add to lower bound
-2. If F(box) ∩ Q_target = ∅: box definitely maps out → discard
-3. Otherwise: bisect the box and recurse (if depth < maxdepth)
-
-The enclosure is computed directly without taking hulls, avoiding precision loss
-and preventing double refinement.
+Uses an iterative greedy algorithm with a priority queue:
+1. Start with Q_source in the queue
+2. Always process the largest box first (greedy)
+3. For each box, compute F(box):
+   - If F(box) ⊆ Q_target: add measure to lower bound
+   - If F(box) ∩ Q_target = ∅: discard
+   - If box width < ε: add to uncertain (upper bound only)
+   - Otherwise: bisect and add sub-boxes to queue
+4. Stop when queue is empty or max_iterations reached
 
 # Arguments
 - `F`: The dynamical system (function)
 - `Q_source`: Source partition element to analyze
 - `Q_target`: Target partition element
 - `enclosure_method`: Function to compute image enclosures (default: first_order)
-- `ε`: Tolerance for box size (boxes smaller than ε won't be bisected)
-- `maxdepth`: Maximum recursion depth
-- `depth`: Current recursion depth (internal parameter)
+- `ε`: Tolerance for box size (boxes smaller than ε are added to uncertain)
+- `max_iterations`: Maximum number of boxes to process
 
 # Example
 ```julia
@@ -54,63 +57,81 @@ lower, upper, uncertain = rel_size(F, source, target)
 """
 function rel_size(F, Q_source::IntervalBox{N}, Q_target::IntervalBox{N};
                   enclosure_method=first_order_enclosure,
-                  ε=1e-6, maxdepth=30, depth=0) where {N}
+                  ε=1e-6, max_iterations=100000) where {N}
 
     # Base case: empty source
-    if box_measure(Q_source) == 0
+    source_measure = box_measure(Q_source)
+    if source_measure == 0
         return (0.0, 0.0, IntervalBox{N}[])
     end
 
-    # Compute rigorous enclosure of F(Q_source)
-    image = enclosure_method(F, Q_source)
+    # Initialize accumulators
+    lower_measure = 0.0  # Absolute measure that definitely maps in
+    uncertain_boxes = IntervalBox{N}[]  # Boxes we couldn't decide
 
-    # Convert to IntervalBox if needed (handles scalar and tuple outputs)
-    if image isa Tuple
-        image_box = IntervalBox(image...)
-    elseif image isa Interval
-        # For scalar maps, need to know target dimension
-        # This shouldn't happen for N-dimensional systems
-        error("Scalar output from map, but expected $N-dimensional output")
-    else
-        image_box = image
+    # Priority queue: process largest boxes first
+    # PriorityQueue is a min-heap, so we use negative measures to get max-heap behavior
+    # (larger boxes have more negative priorities, so they're dequeued first)
+    queue = PriorityQueue{IntervalBox{N}, Float64}()
+    enqueue!(queue, Q_source, -box_measure(Q_source))
+
+    iterations = 0
+
+    while !isempty(queue) && iterations < max_iterations
+        iterations += 1
+
+        # Get the largest box
+        box = dequeue!(queue)
+        box_vol = box_measure(box)
+
+        # Compute rigorous enclosure of F(box)
+        image = enclosure_method(F, box)
+
+        # Convert to IntervalBox if needed
+        if image isa Tuple
+            image_box = IntervalBox(image...)
+        elseif image isa Interval
+            error("Scalar output from map, but expected $N-dimensional output")
+        else
+            image_box = image
+        end
+
+        # Case 1: Image definitely contained in target
+        if issubset_box(image_box, Q_target)
+            lower_measure += box_vol
+            continue
+        end
+
+        # Case 2: Image definitely disjoint from target
+        if isdisjoint_box(image_box, Q_target)
+            continue  # Discard this box
+        end
+
+        # Case 3: Uncertain - need to refine or give up
+        if box_width(box) < ε
+            # Box too small to refine - add to uncertain belt
+            push!(uncertain_boxes, box)
+            continue
+        end
+
+        # Bisect the box and add sub-boxes to queue
+        left, right = bisect_box(box)
+        enqueue!(queue, left, -box_measure(left))
+        enqueue!(queue, right, -box_measure(right))
     end
 
-    # Case 1: Image definitely contained in target
-    if issubset_box(image_box, Q_target)
-        measure = box_measure(Q_source)
-        return (measure, measure, IntervalBox{N}[])
+    # Handle remaining boxes in queue (if max_iterations reached)
+    while !isempty(queue)
+        box = dequeue!(queue)
+        push!(uncertain_boxes, box)
     end
 
-    # Case 2: Image definitely disjoint from target
-    if isdisjoint_box(image_box, Q_target)
-        return (0.0, 0.0, IntervalBox{N}[])
-    end
+    # Compute uncertain measure
+    uncertain_measure = sum(box_measure(box) for box in uncertain_boxes; init=0.0)
 
-    # Case 3: Uncertain - need to refine
-    # Check stopping criteria
-    if depth >= maxdepth || box_width(Q_source) < ε
-        # Can't refine further - add to uncertain belt
-        measure = box_measure(Q_source)
-        return (0.0, measure, [Q_source])
-    end
+    # Return relative measures
+    lower_rel = lower_measure / source_measure
+    upper_rel = (lower_measure + uncertain_measure) / source_measure
 
-    # Bisect the source box along widest dimension
-    left, right = bisect_box(Q_source)
-    sub_boxes = [left, right]
-
-    # Accumulate results from sub-boxes
-    total_lower = 0.0
-    total_upper = 0.0
-    all_uncertain = IntervalBox{N}[]
-
-    for sub_box in sub_boxes
-        lower, upper, uncertain = rel_size(F, sub_box, Q_target;
-                                           enclosure_method=enclosure_method,
-                                           ε=ε, maxdepth=maxdepth, depth=depth+1)
-        total_lower += lower
-        total_upper += upper
-        append!(all_uncertain, uncertain)
-    end
-
-    return (total_lower, total_upper, all_uncertain)
+    return (lower_rel, upper_rel, uncertain_boxes)
 end

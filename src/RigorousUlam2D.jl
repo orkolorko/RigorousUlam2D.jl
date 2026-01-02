@@ -13,7 +13,6 @@ include("partition_utils.jl")
 include("adaptive_refinement.jl")
 include("sparse_ulam.jl")
 include("noise_convolution.jl")
-include("domain_restriction.jl")
 include("boundary_conditions.jl")
 
 # Re-export from submodules
@@ -32,14 +31,13 @@ export build_transition_matrix, normalize_columns!, build_normalized_transition_
 export UlamPartition, partition_index, estimate_sparsity
 
 # Noise convolution
-export minkowski_sum, noisy_image, noisy_rel_size
+export minkowski_sum, noisy_image
 export uniform_noise_box, anisotropic_noise_box
 export build_noise_convolution_operator
 
 # Boundary conditions
 export apply_periodic_bc, wrap_to_torus
-export noisy_image_periodic, noisy_rel_size_periodic
-export build_noisy_transition_matrix_periodic
+export noisy_image_periodic
 
 """
     zeroth_order_enclosure(F, box::IntervalBox)

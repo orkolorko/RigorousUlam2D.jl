@@ -49,12 +49,14 @@ using Test
         @test size(P) == (4, 4)
         @test issparse(P)
 
-        # For identity map, diagonal should dominate
-        @test all(P[i, i] > 0.5 for i in 1:4)
+        # For identity map, diagonal should have the measure of each box
+        # Each box has measure 0.25
+        @test all(P[i, i] ≈ 0.25 for i in 1:4)
 
-        # Check column sums (should be ≈ 1 for well-behaved partition)
+        # Before normalization, column sums equal the source box measure
+        # For identity map, full mass stays in place
         col_sums = [sum(P[:, j]) for j in 1:4]
-        @test all(0.5 .<= col_sums .<= 1.5)  # Allow some uncertainty
+        @test all(col_sums .≈ 0.25)  # Each source box has measure 0.25
     end
 
     @testset "normalize_columns!" begin

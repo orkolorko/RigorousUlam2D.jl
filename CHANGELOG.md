@@ -4,6 +4,128 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+#### Critical Fix: Rigorous Noise Convolution Operator (2026-01-02)
+
+**Fixed Non-Rigorous Noise Overlap Computation**
+- **Problem**: `compute_noise_overlap` was computing `measure(intersection) / measure(noisy_box)` directly
+  - This gave only an **upper bound** because Minkowski sum with intervals is an over-approximation
+  - Not rigorous: couldn't distinguish verified transitions from uncertain ones
+  - No adaptive refinement to reduce uncertainty
+- **Solution**: Implemented proper adaptive subdivision algorithm
+  - Subdivides source box until sub-boxes can be rigorously verified
+  - Returns **lower bound** (verified transitions only) for rigorous approximation
+  - Mirrors the approach used in deterministic `rel_size` function
+  - Parameters: `ε` (tolerance) and `max_iterations` for controlling refinement
+
+**Updated Function Signatures**
+- `compute_noise_overlap`: Added `ε::Float64=1e-6, max_iterations::Int=20` parameters
+- `build_noise_convolution_operator`: Added same parameters, passed through to `compute_noise_overlap`
+
+**Why This Matters**
+- **Rigorous bounds**: Matrix entries are now lower bounds, ensuring verified approximations
+- **Adaptive precision**: Can control accuracy vs. computation trade-off
+- **Consistency**: Matches the rigorous approach used everywhere else in the codebase
+
+**Algorithm**
+```julia
+# For each source box Q_source, target box Q_target:
+1. Compute noisy_box = Q_source ⊕ noise
+2. If noisy_box ⊆ Q_target: return 1.0 (all mass verified)
+3. If noisy_box ∩ Q_target = ∅: return 0.0 (no transition)
+4. Otherwise, subdivide Q_source and recurse until:
+   - Sub-boxes are verified (noisy image contained in target), OR
+   - Sub-boxes are too small (width < ε), OR
+   - Max iterations reached
+5. Return fraction of source verified to land in target
+```
+
+**Files Modified**
+- `src/noise_convolution.jl`: Fixed `compute_noise_overlap` with adaptive refinement
+
+### Removed
+
+#### Deprecated Annealed Operator Functions (2026-01-02)
+
+**Removed Legacy Code Violating Operator Decomposition Architecture**
+- **Removed** `noisy_rel_size` function from `src/noise_convolution.jl`
+  - This function computed the annealed operator (F followed by noise), violating the operator decomposition principle
+  - In the unified architecture, F (dynamics) and N (noise) must be separate operators
+  - Use operator composition instead: `P_noisy = N * P`
+- **Removed** `noisy_rel_size_periodic` function from `src/boundary_conditions.jl`
+  - Same issue as `noisy_rel_size` but with periodic boundary conditions
+  - Applied both F and noise together, creating an annealed operator
+  - Use operator composition with `periodic=true`: `P_noisy = N * P`
+- **Updated** exports in `src/RigorousUlam2D.jl`
+  - Removed `noisy_rel_size` and `noisy_rel_size_periodic` from public API
+  - Kept `noisy_image` and `noisy_image_periodic` (utility functions for computing F(box) ⊕ noise)
+- **Updated** test suite
+  - Removed tests for deprecated annealed operator functions
+  - All 114 tests passing with operator composition architecture
+
+**Why This Matters**
+- The operator decomposition `P_noisy = N ∘ P` is mathematically correct and efficient
+- Separating F and N allows independent analysis of dynamics and noise
+- Prevents confusion between annealed operator (F + noise together) and composition (F then noise)
+- Enables reuse: compute P once, then compose with different noise operators N
+
+**Migration Guide**
+```julia
+# OLD (deprecated - computed annealed operator):
+lower, upper, _ = noisy_rel_size(F, source, target, noise, maxdepth=10)
+
+# NEW (correct - use operator composition):
+partition, graph = build_adaptive_partition(F, domain, noise, max_diameter=0.05)
+P, U = build_transition_matrix(F, partition, transition_graph=graph)
+N = build_noise_convolution_operator(noise, partition, transition_graph=graph)
+P_noisy = N * P
+```
+
+### Fixed
+
+#### Critical Bug Fixes for Unified Architecture (2026-01-01)
+
+**Fixed `build_transition_matrix` Implementation**
+- **Fixed** parameter mismatch: `rel_size` expects `max_iterations`, not `maxdepth`
+  - Changed from recursive depth-based to iterative queue-based algorithm
+  - Updated all internal calls to use correct parameter name
+- **Fixed** incorrect normalization in transition matrix construction
+  - `rel_size` returns **relative** measures (fractions in [0,1])
+  - Previously divided by `source_measure` (double normalization bug)
+  - Now correctly multiplies by `source_measure` to get absolute measures
+  - Matrix values: `P[i,j] = rel_size(F, Q_j, Q_i) * measure(Q_j)`
+
+**Updated Tests**
+- Updated all test files to use `max_iterations` instead of `maxdepth`
+- Fixed test expectations to match new `rel_size` behavior (relative measures)
+- Updated matrix value expectations (unnormalized matrices have values ≠ 1)
+- Commented out deprecated function tests (`compute_effective_partition_adaptive`, `restrict_partition_to_domain`)
+
+**Updated Examples**
+- `examples/01_contracting_map.jl` now uses correct operator composition architecture
+- Demonstrates proper usage: build `P` (deterministic), build `N` (noise), compose `P_noisy = N * P`
+- Example now works correctly with non-empty transition matrices
+
+**Removed Legacy Code**
+- **Removed** deprecated `build_noisy_transition_matrix_periodic` function
+  - Replaced with unified operator composition architecture
+  - Use `build_transition_matrix` with `periodic=true` + `build_noise_convolution_operator`
+- **Fixed** `noisy_rel_size_periodic` to return relative measures (fractions in [0,1])
+  - Previously returned absolute measures (inconsistent with new `rel_size`)
+  - Now consistent with unified architecture
+- **Updated** exports: removed `build_noisy_transition_matrix_periodic`, added `noisy_rel_size_periodic`
+
+**Files Modified**
+- `src/sparse_ulam.jl`: Fixed parameter name and normalization logic
+- `src/boundary_conditions.jl`: Fixed `noisy_rel_size_periodic`, removed deprecated function
+- `src/RigorousUlam2D.jl`: Updated exports
+- `examples/01_contracting_map.jl`: Updated to use operator composition
+- `test/test_adaptive_refinement.jl`: Updated parameters and expectations
+- `test/test_noise_convolution.jl`: Updated to use operator composition architecture
+- `test/test_sparse_ulam.jl`: Updated matrix value expectations
+- `test/test_domain_restriction.jl`: Commented out deprecated tests
+
 ### Added
 
 #### Unified Architecture with Periodic Boundary Conditions (2026-01-01)

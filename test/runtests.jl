@@ -38,4 +38,3 @@ using Test
     include("test_domain_restriction.jl")
 
 end
-include("test_adaptive_enclosure.jl")

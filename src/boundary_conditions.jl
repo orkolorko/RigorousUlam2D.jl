@@ -8,7 +8,7 @@ where the phase space is topologically a torus (with wraparound).
 using IntervalArithmetic, IntervalBoxes
 
 export apply_periodic_bc, wrap_to_torus
-export noisy_image_periodic, build_noisy_transition_matrix_periodic
+export noisy_image_periodic
 
 """
     wrap_to_torus(x::Real, domain_min::Real, domain_max::Real)
@@ -149,161 +149,33 @@ function noisy_image_periodic(F, box::IntervalBox{N}, noise::IntervalBox{N},
     return wrapped
 end
 
-"""
-    noisy_rel_size_periodic(F, Q_source::IntervalBox{N}, Q_target::IntervalBox{N},
-                           noise::IntervalBox{N}, domain::IntervalBox{N};
-                           enclosure_method=first_order_enclosure,
-                           ε=1e-6, maxdepth=30, depth=0) where {N}
+# DEPRECATED: noisy_rel_size_periodic has been removed.
+# This function computed the annealed operator (F followed by noise with periodic BC),
+# which violates the operator decomposition architecture where dynamics F and noise N
+# are separate operators.
+#
+# Use the operator composition architecture instead:
+#
+#   # Build deterministic transition matrix with periodic BC
+#   P, U = build_transition_matrix(F, partition, periodic=true, transition_graph=graph)
+#
+#   # Build noise convolution operator with periodic BC
+#   N = build_noise_convolution_operator(noise, partition, periodic=true, transition_graph=graph)
+#
+#   # Compose to get noisy transition operator
+#   P_noisy = N * P
+#
+# This follows the operator decomposition: P_noisy = N ∘ P
+# where N is the noise convolution operator and P is the deterministic transition operator.
 
-Compute relative size with periodic boundary conditions and noise.
-
-This is the periodic version of `noisy_rel_size`, where images are wrapped
-to the torus before checking containment.
-
-# Arguments
-- `F`: The map
-- `Q_source`: Source box
-- `Q_target`: Target box
-- `noise`: Noise support
-- `domain`: Periodic domain
-- Other args: see `rel_size`
-
-# Returns
-`(lower_bound, upper_bound, uncertain_boxes)` as in `rel_size`
-"""
-function noisy_rel_size_periodic(F, Q_source::IntervalBox{N}, Q_target::IntervalBox{N},
-                                noise::IntervalBox{N}, domain::IntervalBox{N};
-                                enclosure_method=first_order_enclosure,
-                                ε=1e-6, maxdepth=30, depth=0) where {N}
-
-    # Base case: empty source
-    if box_measure(Q_source) == 0
-        return (0.0, 0.0, IntervalBox{N}[])
-    end
-
-    # Compute wrapped noisy image
-    image_box = noisy_image_periodic(F, Q_source, noise, domain;
-                                    enclosure_method=enclosure_method)
-
-    # Case 1: Image definitely contained in target
-    if issubset_box(image_box, Q_target)
-        measure = box_measure(Q_source)
-        return (measure, measure, IntervalBox{N}[])
-    end
-
-    # Case 2: Image definitely disjoint from target
-    if isdisjoint_box(image_box, Q_target)
-        return (0.0, 0.0, IntervalBox{N}[])
-    end
-
-    # Case 3: Uncertain - need to refine
-    if depth >= maxdepth || box_width(Q_source) < ε
-        measure = box_measure(Q_source)
-        return (0.0, measure, [Q_source])
-    end
-
-    # Bisect and recurse
-    left, right = bisect_box(Q_source)
-    sub_boxes = [left, right]
-
-    total_lower = 0.0
-    total_upper = 0.0
-    all_uncertain = IntervalBox{N}[]
-
-    for sub_box in sub_boxes
-        lower, upper, uncertain = noisy_rel_size_periodic(
-            F, sub_box, Q_target, noise, domain;
-            enclosure_method=enclosure_method,
-            ε=ε, maxdepth=maxdepth, depth=depth+1
-        )
-        total_lower += lower
-        total_upper += upper
-        append!(all_uncertain, uncertain)
-    end
-
-    return (total_lower, total_upper, all_uncertain)
-end
-
-"""
-    build_noisy_transition_matrix_periodic(F, partition::UlamPartition{N},
-                                          noise::IntervalBox{N},
-                                          domain::IntervalBox{N};
-                                          kwargs...) where {N}
-
-Build a transition matrix for a noisy system with periodic boundary conditions.
-
-# Arguments
-- `F`: The map (should respect periodicity mod wraparound)
-- `partition`: Phase space partition (should tile the domain)
-- `noise`: Noise support box
-- `domain`: Periodic domain (e.g., [-1,1]² or [0,1]²)
-- Additional kwargs passed to `noisy_rel_size_periodic`
-
-# Returns
-`(P, U)` where P is the transition matrix and U is the uncertainty matrix
-
-# Example
-```julia
-# Henon map with noise on periodic torus
-F_henon(x, y) = (1 - 1.4*x^2 + y, 0.3*x)
-domain = IntervalBox(interval(-1.0, 1.0), interval(-1.0, 1.0))
-partition = create_restricted_partition(F_henon, domain, nothing, partition_depth=4)
-noise = uniform_noise_box(0.01, 2)
-
-P, U = build_noisy_transition_matrix_periodic(F_henon, partition, noise, domain)
-```
-"""
-function build_noisy_transition_matrix_periodic(F, partition::UlamPartition{N,T,I},
-                                               noise::IntervalBox{N},
-                                               domain::IntervalBox{N};
-                                               enclosure_method=first_order_enclosure,
-                                               ε=1e-6, maxdepth=30,
-                                               use_lower_bound=true) where {N,T,I}
-
-    n = partition.n_boxes
-    I_indices = Int[]
-    J_indices = Int[]
-    values = Float64[]
-    uncertainties_I = Int[]
-    uncertainties_J = Int[]
-    uncertainties_vals = Float64[]
-
-    for j in 1:n
-        Q_source = partition.boxes[j]
-        source_measure = box_measure(Q_source)
-
-        if source_measure == 0
-            continue
-        end
-
-        for i in 1:n
-            Q_target = partition.boxes[i]
-
-            lower, upper, _ = noisy_rel_size_periodic(
-                F, Q_source, Q_target, noise, domain;
-                enclosure_method=enclosure_method,
-                ε=ε, maxdepth=maxdepth
-            )
-
-            transition_measure = use_lower_bound ? lower : upper
-            uncertainty = upper - lower
-
-            if transition_measure > 0
-                push!(I_indices, i)
-                push!(J_indices, j)
-                push!(values, transition_measure / source_measure)
-            end
-
-            if uncertainty > 0
-                push!(uncertainties_I, i)
-                push!(uncertainties_J, j)
-                push!(uncertainties_vals, uncertainty / source_measure)
-            end
-        end
-    end
-
-    P = sparse(I_indices, J_indices, values, n, n)
-    U = sparse(uncertainties_I, uncertainties_J, uncertainties_vals, n, n)
-
-    return P, U
-end
+# DEPRECATED: build_noisy_transition_matrix_periodic has been removed.
+# Use the unified architecture instead:
+#
+#   # For periodic BC with noise, use operator composition:
+#   partition, graph = build_adaptive_partition(F, domain, noise, max_diameter=0.05, periodic=true)
+#   P, U = build_transition_matrix(F, partition, periodic=true, transition_graph=graph)
+#   N = build_noise_convolution_operator(noise, partition, periodic=true, transition_graph=graph)
+#   P_noisy = N * P
+#
+# This follows the operator decomposition: P_noisy = N ∘ P
+# where N is the noise convolution operator and P is the deterministic transition operator.

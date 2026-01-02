@@ -11,7 +11,7 @@ Ulam method, including:
 using IntervalArithmetic, IntervalBoxes
 using SparseArrays
 
-export minkowski_sum, noisy_image, noisy_rel_size
+export minkowski_sum, noisy_image
 export uniform_noise_box, anisotropic_noise_box
 export build_noise_convolution_operator
 
@@ -90,79 +90,144 @@ function noisy_image(F, box::IntervalBox{N}, noise::IntervalBox{N};
     return minkowski_sum(deterministic_image, noise)
 end
 
+# DEPRECATED: noisy_rel_size has been removed.
+# This function computed the annealed operator (F followed by noise), which violates
+# the operator decomposition architecture where dynamics F and noise N are separate.
+#
+# Use the operator composition architecture instead:
+#
+#   # Build deterministic transition matrix
+#   P, U = build_transition_matrix(F, partition, periodic=false, transition_graph=graph)
+#
+#   # Build noise convolution operator
+#   N = build_noise_convolution_operator(noise, partition, periodic=false, transition_graph=graph)
+#
+#   # Compose to get noisy transition operator
+#   P_noisy = N * P
+#
+# This follows the operator decomposition: P_noisy = N ∘ P
+# where N is the noise convolution operator and P is the deterministic transition operator.
+
 """
-    noisy_rel_size(F, Q_source::IntervalBox{N}, Q_target::IntervalBox{N},
-                   noise::IntervalBox{N}; kwargs...) where {N}
+    compute_noise_overlap(source_box::IntervalBox{N}, target_box::IntervalBox{N},
+                         noise::IntervalBox{N}, domain::IntervalBox{N},
+                         periodic::Bool; ε::Float64=1e-6, max_iterations::Int=20) where {N}
 
-Compute the relative size for a system with additive noise.
+Rigorously compute the fraction of source_box that, after adding uniform noise, lands in target_box.
 
-This modifies the standard `rel_size` algorithm to account for noise by
-using `noisy_image` instead of the deterministic enclosure.
+For uniform noise ξ ∼ Uniform(noise), this uses adaptive refinement to compute rigorous
+lower and upper bounds on the probability that x + ξ ∈ target_box for x ∈ source_box.
 
-See `rel_size` for additional keyword arguments.
+The algorithm subdivides source_box until:
+- Lower bound: All sub-boxes whose entire noisy image is contained in target
+- Upper bound: All sub-boxes whose noisy image intersects target
+- The difference (upper - lower) becomes negligible or max_iterations is reached
+
+# Arguments
+- `source_box`: The box from which mass originates
+- `target_box`: The box to which mass may transition
+- `noise`: The noise support (uniform distribution)
+- `domain`: The domain (used for periodic BC)
+- `periodic`: If true, wrap noisy box to torus
+- `ε`: Tolerance for subdivision (stop when box width < ε)
+- `max_iterations`: Maximum number of bisection iterations
+
+# Returns
+Fraction in [0, 1] representing the (rigorous lower bound on) overlap probability.
+
+# Note
+This returns the LOWER BOUND for verified transitions. The difference between upper and
+lower bounds represents epistemic uncertainty from the interval arithmetic enclosure.
 """
-function noisy_rel_size(F, Q_source::IntervalBox{N}, Q_target::IntervalBox{N},
-                       noise::IntervalBox{N};
-                       enclosure_method=first_order_enclosure,
-                       ε=1e-6, maxdepth=30, depth=0) where {N}
+function compute_noise_overlap(source_box::IntervalBox{N}, target_box::IntervalBox{N},
+                               noise::IntervalBox{N}, domain::IntervalBox{N},
+                               periodic::Bool; ε::Float64=1e-6, max_iterations::Int=20) where {N}
 
     # Base case: empty source
-    if box_measure(Q_source) == 0
-        return (0.0, 0.0, IntervalBox{N}[])
+    source_measure = box_measure(source_box)
+    if source_measure == 0
+        return 0.0
     end
 
     # Compute noisy image enclosure
-    image_box = noisy_image(F, Q_source, noise; enclosure_method=enclosure_method)
-
-    # Case 1: Image definitely contained in target
-    if issubset_box(image_box, Q_target)
-        measure = box_measure(Q_source)
-        return (measure, measure, IntervalBox{N}[])
+    noisy_box = minkowski_sum(source_box, noise)
+    if periodic
+        noisy_box = apply_periodic_bc(noisy_box, domain)
     end
 
-    # Case 2: Image definitely disjoint from target
-    if isdisjoint_box(image_box, Q_target)
-        return (0.0, 0.0, IntervalBox{N}[])
+    # Case 1: Entire noisy image contained in target (verified transition)
+    if issubset_box(noisy_box, target_box)
+        return 1.0  # All mass from source lands in target
     end
 
-    # Case 3: Uncertain - need to refine
-    if depth >= maxdepth || box_width(Q_source) < ε
-        measure = box_measure(Q_source)
-        return (0.0, measure, [Q_source])
+    # Case 2: Noisy image disjoint from target (no transition)
+    if isdisjoint_box(noisy_box, target_box)
+        return 0.0
     end
 
-    # Bisect and recurse
-    left, right = bisect_box(Q_source)
-    sub_boxes = [left, right]
-
+    # Case 3: Uncertain - need adaptive refinement
+    # Use a simple iterative subdivision approach
     total_lower = 0.0
-    total_upper = 0.0
-    all_uncertain = IntervalBox{N}[]
+    uncertain_boxes = [source_box]
 
-    for sub_box in sub_boxes
-        lower, upper, uncertain = noisy_rel_size(F, sub_box, Q_target, noise;
-                                                 enclosure_method=enclosure_method,
-                                                 ε=ε, maxdepth=maxdepth, depth=depth+1)
-        total_lower += lower
-        total_upper += upper
-        append!(all_uncertain, uncertain)
+    for _ in 1:max_iterations
+        if isempty(uncertain_boxes)
+            break
+        end
+
+        # Stop if boxes are too small
+        if all(box_width(box) < ε for box in uncertain_boxes)
+            break
+        end
+
+        new_uncertain = IntervalBox{N}[]
+
+        for box in uncertain_boxes
+            # Subdivide the box
+            left, right = bisect_box(box)
+
+            for sub_box in [left, right]
+                sub_measure = box_measure(sub_box)
+
+                # Compute noisy image of sub-box
+                sub_noisy = minkowski_sum(sub_box, noise)
+                if periodic
+                    sub_noisy = apply_periodic_bc(sub_noisy, domain)
+                end
+
+                # Check containment
+                if issubset_box(sub_noisy, target_box)
+                    # Verified transition - add to lower bound
+                    total_lower += sub_measure / source_measure
+                elseif !isdisjoint_box(sub_noisy, target_box)
+                    # Still uncertain - keep for next iteration
+                    push!(new_uncertain, sub_box)
+                end
+                # If disjoint, we skip (contributes 0)
+            end
+        end
+
+        uncertain_boxes = new_uncertain
     end
 
-    return (total_lower, total_upper, all_uncertain)
+    # Return lower bound (verified transitions only)
+    return total_lower
 end
 
 """
     build_noise_convolution_operator(noise::IntervalBox{N}, partition::UlamPartition{N};
                                      periodic::Bool=false,
-                                     transition_graph::Union{SparseMatrixCSC{Bool},Nothing}=nothing) where {N}
+                                     transition_graph::Union{SparseMatrixCSC{Bool},Nothing}=nothing,
+                                     ε::Float64=1e-6, max_iterations::Int=20) where {N}
 
-Build the noise convolution operator N on a partition.
+Build the noise convolution operator N on a partition using rigorous adaptive refinement.
 
 This operator represents the spreading of mass due to additive noise. Given a probability
 distribution μ on the partition, N*μ gives the distribution after convolving with noise.
 
-For uniform noise ξ ∼ Uniform(noise), the operator N[i,j] represents the fraction of
-box j that, after adding noise ξ, lands in box i.
+For uniform noise ξ ∼ Uniform(noise), the operator N[i,j] represents the **rigorously verified**
+fraction of box j that, after adding noise ξ, lands in box i. The computation uses adaptive
+subdivision to distinguish between verified transitions and uncertain ones.
 
 # Arguments
 - `noise`: Noise support box (e.g., from uniform_noise_box)
@@ -170,50 +235,36 @@ box j that, after adding noise ξ, lands in box i.
 - `periodic`: If true, apply periodic boundary conditions (wrap to torus)
 - `transition_graph`: Optional sparsity pattern. If provided, only computes entries
                       where boxes can overlap after noise addition.
+- `ε`: Tolerance for adaptive refinement (stop when box width < ε)
+- `max_iterations`: Maximum number of subdivision iterations per entry
 
 # Returns
-- `N`: Sparse noise convolution operator (n × n)
+- `N`: Sparse noise convolution operator (n × n) with **rigorously verified lower bounds**
 
 # Example
 ```julia
 noise = uniform_noise_box(0.01, 2)
 partition, graph = build_adaptive_partition(F, domain, noise, max_diameter=0.05, periodic=true)
-N = build_noise_convolution_operator(noise, partition, periodic=true, transition_graph=graph)
+N = build_noise_convolution_operator(noise, partition, periodic=true, transition_graph=graph,
+                                     ε=1e-6, max_iterations=20)
 ```
 
 # Note
-The noise operator is independent of the dynamics F. It only depends on the noise
-distribution and the partition geometry.
+- The noise operator is independent of the dynamics F. It only depends on the noise
+  distribution and the partition geometry.
+- Matrix entries are **lower bounds** (verified transitions only). This ensures rigorous
+  approximations but may be conservative.
+- Increase `max_iterations` or decrease `ε` for tighter bounds (more computation).
 """
 function build_noise_convolution_operator(noise::IntervalBox{N}, partition::UlamPartition{N};
                                          periodic::Bool=false,
-                                         transition_graph::Union{SparseMatrixCSC{Bool},Nothing}=nothing) where {N}
+                                         transition_graph::Union{SparseMatrixCSC{Bool},Nothing}=nothing,
+                                         ε::Float64=1e-6, max_iterations::Int=20) where {N}
 
     n = partition.n_boxes
     I_indices = Int[]
     J_indices = Int[]
     values = Float64[]
-
-    # Helper: compute fraction of source_box + noise that intersects target_box
-    function noise_overlap(source_box::IntervalBox{N}, target_box::IntervalBox{N})
-        # The noisy box is source_box ⊕ noise (Minkowski sum)
-        noisy_box = minkowski_sum(source_box, noise)
-
-        # Apply boundary conditions
-        if periodic
-            noisy_box = apply_periodic_bc(noisy_box, partition.domain)
-        end
-
-        # Compute intersection with target
-        intersection = intersect_boxes(noisy_box, target_box)
-
-        if is_empty_box(intersection)
-            return 0.0
-        end
-
-        # Fraction = measure(intersection) / measure(noisy_box)
-        return box_measure(intersection) / box_measure(noisy_box)
-    end
 
     if transition_graph !== nothing
         # Use graph to skip zero entries
@@ -225,7 +276,9 @@ function build_noise_convolution_operator(noise::IntervalBox{N}, partition::Ulam
                 i = rows[idx]
                 target_box = partition.boxes[i]
 
-                overlap = noise_overlap(source_box, target_box)
+                overlap = compute_noise_overlap(source_box, target_box, noise,
+                                               partition.domain, periodic,
+                                               ε=ε, max_iterations=max_iterations)
 
                 if overlap > 0
                     push!(I_indices, i)
@@ -242,7 +295,9 @@ function build_noise_convolution_operator(noise::IntervalBox{N}, partition::Ulam
             for i in 1:n
                 target_box = partition.boxes[i]
 
-                overlap = noise_overlap(source_box, target_box)
+                overlap = compute_noise_overlap(source_box, target_box, noise,
+                                               partition.domain, periodic,
+                                               ε=ε, max_iterations=max_iterations)
 
                 if overlap > 0
                     push!(I_indices, i)

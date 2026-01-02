@@ -119,48 +119,51 @@ function build_transition_matrix(F, partition::UlamPartition{N},
     uncertainties_J = Int[]
     uncertainties_vals = Float64[]
 
-    # Select appropriate rel_size function based on noise and boundary conditions
+    # Check for deprecated usage: noise should be applied via operator composition
+    if noise !== nothing
+        error("""
+            Passing noise to build_transition_matrix is deprecated.
+
+            Use the operator composition architecture instead:
+              # Build deterministic transition matrix
+              P, U = build_transition_matrix(F, partition, periodic=$periodic, transition_graph=graph)
+
+              # Build noise convolution operator
+              N = build_noise_convolution_operator(noise, partition, periodic=$periodic, transition_graph=graph)
+
+              # Compose to get noisy transition operator
+              P_noisy = N * P
+
+            This follows the operator decomposition: P_noisy = N ∘ P
+            where N is the noise convolution operator and P is the deterministic transition operator.
+            """)
+    end
+
+    # Select appropriate rel_size function based on boundary conditions
     compute_rel_size = if periodic
-        # Periodic boundary conditions
-        if noise === nothing
-            # Deterministic with periodic BC - need to wrap images
-            (F, Q_source, Q_target) -> begin
-                # Compute image
-                image = enclosure_method(F, Q_source)
-                image_box = image isa Tuple ? IntervalBox(image...) : image
-                # Wrap to torus
-                wrapped = apply_periodic_bc(image_box, partition.domain)
-                # Use standard rel_size on wrapped image (as if from identity map)
-                # This is conservative but correct
-                if issubset_box(wrapped, Q_target)
-                    measure = box_measure(Q_source)
-                    return (measure, measure, IntervalBox{N}[])
-                elseif isdisjoint_box(wrapped, Q_target)
-                    return (0.0, 0.0, IntervalBox{N}[])
-                else
-                    # Uncertain - subdivide source and recurse
-                    # For now, use upper bound = full measure (conservative)
-                    measure = box_measure(Q_source)
-                    return (0.0, measure, [Q_source])
-                end
+        # Deterministic with periodic BC - wrap images to torus
+        (F, Q_source, Q_target) -> begin
+            # Compute image
+            image = enclosure_method(F, Q_source)
+            image_box = image isa Tuple ? IntervalBox(image...) : image
+            # Wrap to torus
+            wrapped = apply_periodic_bc(image_box, partition.domain)
+
+            # Check containment (return relative measures)
+            if issubset_box(wrapped, Q_target)
+                return (1.0, 1.0, IntervalBox{N}[])  # All of source maps to target
+            elseif isdisjoint_box(wrapped, Q_target)
+                return (0.0, 0.0, IntervalBox{N}[])
+            else
+                # Uncertain - return conservative upper bound
+                return (0.0, 1.0, [Q_source])
             end
-        else
-            # Noisy with periodic BC
-            (F, Q_source, Q_target) -> noisy_rel_size_periodic(F, Q_source, Q_target, noise, partition.domain;
-                                                                enclosure_method=enclosure_method,
-                                                                ε=ε, maxdepth=maxdepth)
         end
     else
         # Absorbing boundary conditions (default)
-        if noise === nothing
-            (F, Q_source, Q_target) -> rel_size(F, Q_source, Q_target;
-                                                enclosure_method=enclosure_method,
-                                                ε=ε, maxdepth=maxdepth)
-        else
-            (F, Q_source, Q_target) -> noisy_rel_size(F, Q_source, Q_target, noise;
-                                                       enclosure_method=enclosure_method,
-                                                       ε=ε, maxdepth=maxdepth)
-        end
+        (F, Q_source, Q_target) -> rel_size(F, Q_source, Q_target;
+                                            enclosure_method=enclosure_method,
+                                            ε=ε, max_iterations=maxdepth)
     end
 
     # If transition graph is provided, use it to skip zero entries
@@ -187,13 +190,15 @@ function build_transition_matrix(F, partition::UlamPartition{N},
                 if transition_measure > 0
                     push!(I_indices, i)
                     push!(J_indices, j)
-                    push!(values, transition_measure / source_measure)
+                    # rel_size already returns relative measures (fractions in [0,1])
+                    # so we multiply by source_measure to get absolute measures
+                    push!(values, transition_measure * source_measure)
                 end
 
                 if uncertainty > 0
                     push!(uncertainties_I, i)
                     push!(uncertainties_J, j)
-                    push!(uncertainties_vals, uncertainty / source_measure)
+                    push!(uncertainties_vals, uncertainty * source_measure)
                 end
             end
         end
@@ -218,13 +223,15 @@ function build_transition_matrix(F, partition::UlamPartition{N},
                 if transition_measure > 0
                     push!(I_indices, i)
                     push!(J_indices, j)
-                    push!(values, transition_measure / source_measure)
+                    # rel_size already returns relative measures (fractions in [0,1])
+                    # so we multiply by source_measure to get absolute measures
+                    push!(values, transition_measure * source_measure)
                 end
 
                 if uncertainty > 0
                     push!(uncertainties_I, i)
                     push!(uncertainties_J, j)
-                    push!(uncertainties_vals, uncertainty / source_measure)
+                    push!(uncertainties_vals, uncertainty * source_measure)
                 end
             end
         end

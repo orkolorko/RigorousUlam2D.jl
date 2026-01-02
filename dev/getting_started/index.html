@@ -10,16 +10,18 @@ F(x, y) = (0.5*x + 0.25, 0.5*y + 0.25)
 # Step 2: Setup domain
 domain = IntervalBox(interval(0.0, 1.0), interval(0.0, 1.0))
 
-# Step 3: Create partition with domain restriction
-partition, eff_domain, info = create_restricted_partition(
+# Step 3: Create adaptive partition
+partition, transition_graph = build_adaptive_partition(
     F, domain, nothing,  # no noise
-    partition_depth=4,   # 256 boxes
+    initial_depth=4,
+    refinement_levels=2,
     verbose=true
 )
 
-# Step 4: Build transition matrix
+# Step 4: Build transition matrix (using graph for speedup)
 P, U = build_transition_matrix(
     F, partition,
+    transition_graph=transition_graph,
     maxdepth=8,
     ε=1e-4
 )
@@ -52,50 +54,66 @@ end
 domain = IntervalBox(interval(-1.0, 1.0), interval(-1.0, 1.0))
 noise = uniform_noise_box(0.025, 2)  # Square noise of size 0.05
 
-# Create partition with diameter-based stopping (NEW!)
-partition, eff_domain, info = create_restricted_partition(
+# Create partition with diameter-based stopping
+partition, transition_graph = build_adaptive_partition(
     henon_rescaled, domain, noise,
-    max_diameter=0.02,  # Target error tolerance
-    subdivision_depth=2,
+    max_diameter=0.02,
+    initial_depth=2,
+    periodic=true,
     verbose=true
 )
 
-# Build matrix with periodic BC
-P, U = build_noisy_transition_matrix_periodic(
-    henon_rescaled, partition, noise, domain,
+# Build operators separately (operator composition)
+P_det, U = build_transition_matrix(
+    henon_rescaled, partition,
+    transition_graph=transition_graph,
+    periodic=true,
     enclosure_method=first_order_enclosure,
-    maxdepth=8,
-    ε=1e-4
+    maxdepth=8, ε=1e-4
 )
+
+N = build_noise_convolution_operator(
+    noise, partition,
+    transition_graph=transition_graph,
+    periodic=true, ε=1e-4
+)
+
+# Compose: P_noisy = N * P_det
+P = N * P_det
 
 # Analyze
 normalize_columns!(P)
 stats = estimate_sparsity(P)
-println(&quot;Sparsity: &quot;, round(100*stats.sparsity, digits=2), &quot;%&quot;)</code></pre><h2 id="Understanding-Domain-Restriction"><a class="docs-heading-anchor" href="#Understanding-Domain-Restriction">Understanding Domain Restriction</a><a id="Understanding-Domain-Restriction-1"></a><a class="docs-heading-anchor-permalink" href="#Understanding-Domain-Restriction" title="Permalink"></a></h2><p>For contracting maps, computing on the full domain is wasteful:</p><pre><code class="language-julia hljs"># WITHOUT domain restriction
-boxes_full = [domain]
-for _ in 1:5
-    boxes_full = vcat([quadrisect(b) for b in boxes_full]...)
-end
-n_full = length(boxes_full)  # 1024 boxes
-println(&quot;Full domain: $n_full boxes&quot;)
+println(&quot;Sparsity: &quot;, round(100*stats.sparsity, digits=2), &quot;%&quot;)</code></pre><h2 id="Understanding-Domain-Restriction"><a class="docs-heading-anchor" href="#Understanding-Domain-Restriction">Understanding Domain Restriction</a><a id="Understanding-Domain-Restriction-1"></a><a class="docs-heading-anchor-permalink" href="#Understanding-Domain-Restriction" title="Permalink"></a></h2><p>For contracting maps, computing on the full domain is wasteful:</p><pre><code class="language-julia hljs"># WITHOUT adaptive refinement
+partition_full = build_uniform_partition(domain, 5)
+n_full = partition_full.n_boxes  # 1024 boxes
+println(&quot;Uniform partition: $n_full boxes&quot;)
 
-# WITH domain restriction
-partition_opt, _, info = create_restricted_partition(
-    F, domain, nothing, partition_depth=5
+# WITH adaptive refinement (forward flagging)
+partition_opt, graph = build_adaptive_partition(
+    F, domain, nothing,
+    initial_depth=2,
+    refinement_levels=3,
+    verbose=true
 )
-println(&quot;Restricted: $(partition_opt.n_boxes) boxes&quot;)
-println(&quot;Reduction: $(round(n_full/partition_opt.n_boxes, digits=2))×&quot;)</code></pre><p>Typical results: <strong>5-10× domain reduction → 25-100× fewer boxes → 100-1000× fewer matrix entries!</strong></p><h2 id="Diameter-Based-Stopping-(Error-Control)"><a class="docs-heading-anchor" href="#Diameter-Based-Stopping-(Error-Control)">Diameter-Based Stopping (Error Control)</a><a id="Diameter-Based-Stopping-(Error-Control)-1"></a><a class="docs-heading-anchor-permalink" href="#Diameter-Based-Stopping-(Error-Control)" title="Permalink"></a></h2><p>Instead of guessing the partition depth, specify the target error directly:</p><pre><code class="language-julia hljs"># Traditional: guess depth
-partition1, _, _ = create_restricted_partition(
+println(&quot;Adaptive partition: $(partition_opt.n_boxes) boxes&quot;)
+println(&quot;Reduction: $(round(n_full/partition_opt.n_boxes, digits=2))×&quot;)</code></pre><p>Typical results: <strong>Adaptive partitioning reduces boxes by 5-100× → 100-1000× fewer matrix entries!</strong></p><h2 id="Diameter-Based-Stopping-(Error-Control)"><a class="docs-heading-anchor" href="#Diameter-Based-Stopping-(Error-Control)">Diameter-Based Stopping (Error Control)</a><a id="Diameter-Based-Stopping-(Error-Control)-1"></a><a class="docs-heading-anchor-permalink" href="#Diameter-Based-Stopping-(Error-Control)" title="Permalink"></a></h2><p>Instead of guessing the partition depth, specify the target error directly:</p><pre><code class="language-julia hljs"># Traditional: fixed refinement levels
+partition1, graph1 = build_adaptive_partition(
     F, domain, noise,
-    partition_depth=5  # Is this enough? Too much?
+    initial_depth=2,
+    refinement_levels=5  # Is this enough? Too much?
 )
 
-# NEW: specify error tolerance
-partition2, _, info = create_restricted_partition(
+# NEW: specify error tolerance via diameter
+partition2, graph2 = build_adaptive_partition(
     F, domain, noise,
-    max_diameter=0.01  # Achieve 1% error bound
+    initial_depth=2,
+    max_diameter=0.01,  # Achieve ~1% error bound
+    verbose=true
 )
 
-println(&quot;Target error: 0.01&quot;)
-println(&quot;Achieved diameter: &quot;, info.partition_diameter)
-println(&quot;Automatic boxes: &quot;, info.n_boxes)</code></pre><p>According to the theory, the Ulam approximation error is bounded by <code>C × diameter</code>, where <code>C</code> depends on the system. This provides direct control over approximation quality!</p><h2 id="Next-Steps"><a class="docs-heading-anchor" href="#Next-Steps">Next Steps</a><a id="Next-Steps-1"></a><a class="docs-heading-anchor-permalink" href="#Next-Steps" title="Permalink"></a></h2><ul><li><strong>Enclosure Methods</strong> - Learn about different enclosure strategies</li><li><strong>Domain Restriction</strong> - Deep dive into optimization techniques</li><li><strong>Examples</strong> - More complete examples with analysis</li><li><strong>API Reference</strong> - Complete function documentation</li></ul></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../">« Home</a><a class="docs-footer-nextpage" href="../enclosures/">Enclosure Methods »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.16.1 on <span class="colophon-date" title="Thursday 1 January 2026 16:56">Thursday 1 January 2026</span>. Using Julia version 1.12.3.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+println(&quot;Target diameter: 0.01&quot;)
+println(&quot;Final boxes: &quot;, partition2.n_boxes)
+# Check actual diameter
+max_diam = maximum(box_width(box) for box in partition2.boxes)
+println(&quot;Achieved diameter: &quot;, max_diam)</code></pre><p>According to the theory, the Ulam approximation error is bounded by <code>C × diameter</code>, where <code>C</code> depends on the system. This provides direct control over approximation quality!</p><h2 id="Next-Steps"><a class="docs-heading-anchor" href="#Next-Steps">Next Steps</a><a id="Next-Steps-1"></a><a class="docs-heading-anchor-permalink" href="#Next-Steps" title="Permalink"></a></h2><ul><li><strong>Enclosure Methods</strong> - Learn about different enclosure strategies</li><li><strong>Domain Restriction</strong> - Deep dive into optimization techniques</li><li><strong>Examples</strong> - More complete examples with analysis</li><li><strong>API Reference</strong> - Complete function documentation</li></ul></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../">« Home</a><a class="docs-footer-nextpage" href="../enclosures/">Enclosure Methods »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.16.1 on <span class="colophon-date" title="Friday 2 January 2026 19:00">Friday 2 January 2026</span>. Using Julia version 1.12.3.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>

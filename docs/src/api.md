@@ -39,7 +39,8 @@ Core algorithm for computing rigorous transition probabilities.
 
 ```@docs
 rel_size
-adaptive_partition
+build_adaptive_partition
+build_uniform_partition
 ```
 
 ## Sparse Transition Matrices

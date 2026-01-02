@@ -25,13 +25,4 @@ partition, transition_graph = build_adaptive_partition(
 
 ## API Reference
 
-```@docs
-build_adaptive_partition
-build_uniform_partition
-box_measure
-box_width
-box_radius
-bisect_box
-expand_interval
-intersect_boxes
-```
+See the [API Reference](api.md) page for function documentation.

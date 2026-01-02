@@ -25,6 +25,8 @@ is_empty_box
 box_measure
 box_width
 box_radius
+expand_interval
+intersect_boxes
 ```
 
 ## Domain Restriction

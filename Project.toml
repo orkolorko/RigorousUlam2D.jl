@@ -4,6 +4,7 @@ version = "0.0.1-DEV"
 authors = ["Isaia Nisoli"]
 
 [deps]
+DataStructures = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 IntervalArithmetic = "d1acc4aa-44c8-5952-acd4-ba5d80a2a253"
 IntervalBoxes = "43d83c95-ebbb-40ec-8188-24586a1458ed"
@@ -11,6 +12,7 @@ LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 
 [compat]
+DataStructures = "0.19.3"
 ForwardDiff = "1.2.1"
 IntervalArithmetic = "0.22.36"
 IntervalBoxes = "0.2.2"

@@ -109,7 +109,7 @@ P_det, U = build_transition_matrix(
     F, partition,
     transition_graph=graph,
     enclosure_method=first_order_enclosure,
-    maxdepth=8, ε=1e-4
+    max_iterations=8, ε=1e-4
 )
 
 # Noise convolution operator

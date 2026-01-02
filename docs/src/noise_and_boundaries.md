@@ -33,7 +33,7 @@ Use operator composition:
 P_det, U = build_transition_matrix(F, partition,
     transition_graph=graph,
     enclosure_method=first_order_enclosure,
-    maxdepth=8, ε=1e-4
+    max_iterations=8, ε=1e-4
 )
 
 # Build noise convolution operator
@@ -56,7 +56,7 @@ P, U = build_transition_matrix(F, partition,
     transition_graph=graph,
     periodic=true,
     enclosure_method=first_order_enclosure,
-    maxdepth=8, ε=1e-4
+    max_iterations=8, ε=1e-4
 )
 
 # Build noise operator with periodic BC

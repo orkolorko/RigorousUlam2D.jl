@@ -73,7 +73,7 @@ All notable changes to this project will be documented in this file.
 **Migration Guide**
 ```julia
 # OLD (deprecated - computed annealed operator):
-lower, upper, _ = noisy_rel_size(F, source, target, noise, maxdepth=10)
+lower, upper, _ = noisy_rel_size(F, source, target, noise, max_iterations=10)
 
 # NEW (correct - use operator composition):
 partition, graph = build_adaptive_partition(F, domain, noise, max_diameter=0.05)

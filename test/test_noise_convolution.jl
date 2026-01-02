@@ -95,7 +95,7 @@ using Test
         noise = uniform_noise_box(0.05, 2)
 
         # Build deterministic transition matrix
-        P, U = build_transition_matrix(F_id, partition, maxdepth=5, ε=1e-3)
+        P, U = build_transition_matrix(F_id, partition, max_iterations=5, ε=1e-3)
 
         # Build noise convolution operator
         N = build_noise_convolution_operator(noise, partition)
@@ -124,7 +124,7 @@ using Test
         noise = uniform_noise_box(0.05, 2)
 
         # Deterministic
-        P_det, _ = build_transition_matrix(F, partition, maxdepth=5, ε=1e-3)
+        P_det, _ = build_transition_matrix(F, partition, max_iterations=5, ε=1e-3)
 
         # Build noisy matrix using operator composition
         N = build_noise_convolution_operator(noise, partition)
@@ -149,7 +149,7 @@ using Test
 
         # Build operators
         P_det, _ = build_transition_matrix(F, partition, transition_graph=graph,
-                                          maxdepth=8, ε=1e-4)
+                                          max_iterations=8, ε=1e-4)
         N = build_noise_convolution_operator(noise, partition, transition_graph=graph,
                                             ε=1e-5, max_iterations=20)
         P_noisy = N * P_det

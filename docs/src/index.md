@@ -42,7 +42,7 @@ partition, eff_domain, info = create_restricted_partition(
 # Build rigorous transition matrix
 P, U = build_noisy_transition_matrix_periodic(
     F, partition, noise, domain,
-    maxdepth=8, ε=1e-4
+    max_iterations=8, ε=1e-4
 )
 
 # Normalize to stochastic matrix

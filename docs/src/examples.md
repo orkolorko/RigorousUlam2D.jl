@@ -17,16 +17,18 @@ F_logistic(x, y) = (4*x*(1-x), 4*y*(1-y))
 # Domain and partition
 domain = IntervalBox(interval(0.0, 1.0), interval(0.0, 1.0))
 
-partition, _, info = create_restricted_partition(
+partition, transition_graph = build_adaptive_partition(
     F_logistic, domain, nothing,
-    partition_depth=5,
+    initial_depth=3,
+    refinement_levels=2,
     verbose=true
 )
 
-# Build matrix
+# Build matrix (using graph for speedup)
 P, U = build_transition_matrix(
     F_logistic, partition,
-    maxdepth=10,
+    transition_graph=transition_graph,
+    max_iterations=10,
     ε=1e-5
 )
 
@@ -72,27 +74,27 @@ println("=" ^ 70)
 for σ in noise_levels
     noise = σ > 0 ? uniform_noise_box(σ, 2) : nothing
 
-    # Create partition
-    partition, eff_dom, info = create_restricted_partition(
+    # Create adaptive partition
+    partition, graph = build_adaptive_partition(
         F, domain, noise,
-        partition_depth=4,
+        initial_depth=2,
+        refinement_levels=2,
         verbose=false
     )
 
-    # Build matrix
-    if noise === nothing
-        P, U = build_transition_matrix(F, partition, maxdepth=8, ε=1e-4)
-    else
-        P, U = build_noisy_transition_matrix(F, partition, noise,
-                                             maxdepth=8, ε=1e-4)
-    end
+    # Build matrix (unified interface handles both deterministic and noisy)
+    P, U = build_transition_matrix(
+        F, partition, noise,
+        transition_graph=graph,
+        max_iterations=8,
+        ε=1e-4
+    )
 
     normalize_columns!(P)
     stats = estimate_sparsity(P)
 
     println("\nNoise σ = $σ:")
-    println("  Effective domain: ", eff_dom)
-    println("  Partition boxes: ", info.n_boxes)
+    println("  Partition boxes: ", partition.n_boxes)
     println("  Matrix non-zeros: ", stats.nnz)
     println("  Sparsity: ", round(100*stats.sparsity, digits=2), "%")
 end
@@ -130,35 +132,37 @@ println("=" ^ 70)
 # Step 1: Compare partition strategies
 println("\n1. PARTITION STRATEGY COMPARISON\n")
 
-# Naive
-partition_naive, _, info_naive = create_restricted_partition(
-    henon_rescaled, domain, nothing,
-    partition_depth=4,
-    verbose=false
-)
+# Uniform partition
+partition_naive = build_uniform_partition(domain, 4)
 
-# With domain restriction
-partition_opt, _, info_opt = create_restricted_partition(
+# Adaptive with diameter control
+partition_opt, graph_opt = build_adaptive_partition(
     henon_rescaled, domain, noise,
     max_diameter=0.02,
-    subdivision_depth=2,
+    initial_depth=2,
+    periodic=true,
     verbose=false
 )
 
+naive_diam = maximum(box_width(box) for box in partition_naive.boxes)
+opt_diam = maximum(box_width(box) for box in partition_opt.boxes)
+
 @printf("%-20s: %4d boxes, diameter = %.6f\n",
-        "Naive (no noise)", info_naive.n_boxes, info_naive.partition_diameter)
+        "Uniform (depth 4)", partition_naive.n_boxes, naive_diam)
 @printf("%-20s: %4d boxes, diameter = %.6f\n",
-        "Optimized", info_opt.n_boxes, info_opt.partition_diameter)
+        "Adaptive", partition_opt.n_boxes, opt_diam)
 @printf("%-20s: %.1f×\n",
-        "Reduction factor", info_naive.n_boxes / info_opt.n_boxes)
+        "Reduction factor", partition_naive.n_boxes / partition_opt.n_boxes)
 
 # Step 2: Build transition matrix
 println("\n2. BUILDING TRANSITION MATRIX\n")
 
-P, U = build_noisy_transition_matrix_periodic(
-    henon_rescaled, partition_opt, noise, domain,
+P, U = build_transition_matrix(
+    henon_rescaled, partition_opt, noise,
+    transition_graph=graph_opt,
+    periodic=true,
     enclosure_method=first_order_enclosure,
-    maxdepth=8,
+    max_iterations=8,
     ε=1e-4
 )
 
@@ -241,20 +245,22 @@ println("=" ^ 80)
 println("=" ^ 80)
 
 for target in target_errors
-    partition, _, info = create_restricted_partition(
+    partition, graph = build_adaptive_partition(
         F, domain, noise,
         max_diameter=target,
+        initial_depth=2,
         verbose=false
     )
 
-    matrix_size = info.n_boxes^2
+    achieved_diam = maximum(box_width(box) for box in partition.boxes)
+    matrix_size = partition.n_boxes^2
     # Rough time estimate (based on typical ~1000 entries/sec)
     est_time_sec = matrix_size / 1000
 
     @printf("%-15.6f | %-15.6f | %-10d | %-15d | %-15s\n",
             target,
-            info.partition_diameter,
-            info.n_boxes,
+            achieved_diam,
+            partition.n_boxes,
             matrix_size,
             est_time_sec < 60 ? "$(round(est_time_sec, digits=1))s" :
             "$(round(est_time_sec/60, digits=1))min")
@@ -268,63 +274,76 @@ println("- To achieve 1% error: set max_diameter = 0.01")
 println("- Package automatically finds optimal subdivision!")
 ```
 
-## Example 5: Adaptive Enclosure Comparison
+## Example 5: Operator Decomposition
 
-Comparing different enclosure strategies for the effective domain.
+Demonstrating the noise convolution operator for operator decomposition: P_noisy = N * P_deterministic
 
 ```julia
 using RigorousUlam2D
 using IntervalArithmetic, IntervalBoxes
 using Printf
 
-# Highly nonlinear map
-F(x, y) = (x - y^2, y + x^2)
-domain = IntervalBox(interval(-0.5, 0.5), interval(-0.5, 0.5))
+# Simple contracting map
+F(x, y) = (0.5*x + 0.25, 0.5*y + 0.25)
+domain = IntervalBox(interval(0.0, 1.0), interval(0.0, 1.0))
+noise = uniform_noise_box(0.02, 2)
 
-println("ADAPTIVE ENCLOSURE STRATEGIES")
+println("OPERATOR DECOMPOSITION: P_noisy = N * P_deterministic")
 println("=" ^ 70)
 
-strategies = [
-    ("Standard (depth=0)", nothing, 0),
-    ("Standard (depth=2)", nothing, 2),
-    ("Adaptive Error", ErrorBased(1e-3, 8), nothing),
-    ("Adaptive Expansion", ExpansionBased(2.0, 8), nothing)
-]
+# Build adaptive partition
+partition, graph = build_adaptive_partition(
+    F, domain, noise,
+    max_diameter=0.03,
+    initial_depth=2,
+    verbose=true
+)
 
-@printf("%-25s | %-15s | %-15s | %-10s\n",
-        "Strategy", "Image Volume", "Eff. Domain", "Time (ms)")
-println("=" ^ 70)
-
-for (name, adaptive_method, subdiv_depth) in strategies
-    t_start = time()
-
-    if adaptive_method === nothing
-        # Standard approach
-        eff_dom, img_clean, _ = compute_effective_domain(
-            F, domain, nothing,
-            subdivision_depth=subdiv_depth
-        )
-        img_vol = box_measure(img_clean)
-    else
-        # Adaptive approach
-        img_adaptive = adaptive_enclosure(F, domain, adaptive_method)
-        img_vol = box_measure(img_adaptive)
-        eff_dom = intersect_boxes(
-            expand_box(img_adaptive, 1.1),
-            domain
-        )
-    end
-
-    t_elapsed = 1000 * (time() - t_start)
-    eff_vol = box_measure(eff_dom)
-
-    @printf("%-25s | %-15.6f | %-15.6f | %-10.3f\n",
-            name, img_vol, eff_vol, t_elapsed)
+# Method 1: Direct noisy transition matrix
+println("\n1. Direct method (computing P_noisy directly):")
+t1 = @elapsed begin
+    P_direct, U_direct = build_transition_matrix(
+        F, partition, noise,
+        transition_graph=graph,
+        max_iterations=8, ε=1e-4
+    )
 end
+println("  Time: $(round(t1, digits=3))s")
+println("  Non-zeros: $(nnz(P_direct))")
 
-println("=" ^ 70)
-println("\nResult: Adaptive methods provide tighter bounds → smaller")
-println("        effective domain → fewer boxes → faster computation!")
+# Method 2: Operator decomposition
+println("\n2. Decomposition method (P_noisy = N * P):")
+t2 = @elapsed begin
+    # Build deterministic operator
+    P_det, U_det = build_transition_matrix(
+        F, partition, nothing,  # no noise
+        transition_graph=graph,
+        max_iterations=8, ε=1e-4
+    )
+
+    # Build noise convolution operator
+    N = build_noise_convolution_operator(
+        noise, partition,
+        transition_graph=graph,
+        max_iterations=8, ε=1e-4
+    )
+
+    # Compose: P_noisy = N * P_deterministic
+    P_composed = N * P_det
+end
+println("  Time: $(round(t2, digits=3))s")
+println("  Non-zeros P: $(nnz(P_det))")
+println("  Non-zeros N: $(nnz(N))")
+println("  Non-zeros P_noisy: $(nnz(P_composed))")
+
+# Compare results
+difference = norm(P_direct - P_composed, Inf)
+println("\n3. Comparison:")
+println("  Max difference: $(difference)")
+println("  Speedup: $(round(t1/t2, digits=2))×")
+
+println("\n" * "=" ^ 70)
+println("\nKey insight: Operator decomposition allows reusing P for different noise levels!")
 ```
 
 ## Running the Examples

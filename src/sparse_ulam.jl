@@ -74,8 +74,8 @@ probability from partition element j to partition element i.
 - `partition`: The partition of the phase space
 - `noise`: Noise support box (optional, for stochastic systems)
 - `enclosure_method`: Method for computing rigorous image enclosures
-- `ε`: Tolerance for adaptive refinement
-- `maxdepth`: Maximum depth for adaptive refinement
+- `ε`: Tolerance for adaptive refinement (box diameter threshold)
+- `max_iterations`: Maximum iterations for adaptive refinement
 - `use_lower_bound`: If true, use lower bounds (verified transitions only)
                      If false, use upper bounds (includes uncertainties)
 - `periodic`: If true, apply periodic boundary conditions (wrap images to torus)
@@ -106,7 +106,7 @@ Use `normalize_columns!` to convert to a column-stochastic matrix.
 function build_transition_matrix(F, partition::UlamPartition{N},
                                 noise::Union{IntervalBox{N}, Nothing}=nothing;
                                 enclosure_method=first_order_enclosure,
-                                ε=1e-6, maxdepth=30,
+                                ε=1e-6, max_iterations=30,
                                 use_lower_bound=true,
                                 periodic::Bool=false,
                                 transition_graph::Union{SparseMatrixCSC{Bool},Nothing}=nothing) where {N}
@@ -163,7 +163,7 @@ function build_transition_matrix(F, partition::UlamPartition{N},
         # Absorbing boundary conditions (default)
         (F, Q_source, Q_target) -> rel_size(F, Q_source, Q_target;
                                             enclosure_method=enclosure_method,
-                                            ε=ε, max_iterations=maxdepth)
+                                            ε=ε, max_iterations=max_iterations)
     end
 
     # If transition graph is provided, use it to skip zero entries

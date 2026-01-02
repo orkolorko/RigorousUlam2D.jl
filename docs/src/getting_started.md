@@ -45,7 +45,7 @@ partition, transition_graph = build_adaptive_partition(
 P, U = build_transition_matrix(
     F, partition,
     transition_graph=transition_graph,
-    maxdepth=8,
+    max_iterations=8,
     ε=1e-4
 )
 
@@ -98,7 +98,7 @@ P_det, U = build_transition_matrix(
     transition_graph=transition_graph,
     periodic=true,
     enclosure_method=first_order_enclosure,
-    maxdepth=8, ε=1e-4
+    max_iterations=8, ε=1e-4
 )
 
 N = build_noise_convolution_operator(

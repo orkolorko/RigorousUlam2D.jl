@@ -62,7 +62,7 @@ P_det, U_det = build_transition_matrix(
     transition_graph=transition_graph,
     periodic=true,  # Enable periodic BC
     enclosure_method=first_order_enclosure,
-    maxdepth=8,
+    max_iterations=8,
     ε=1e-4
 )
 

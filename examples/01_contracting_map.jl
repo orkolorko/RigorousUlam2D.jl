@@ -58,7 +58,7 @@ println("\nBuilding deterministic transition matrix P...")
 P, U = build_transition_matrix(
     F, partition,  # No noise parameter!
     transition_graph=transition_graph,
-    maxdepth=8,
+    max_iterations=8,
     ε=1e-4
 )
 

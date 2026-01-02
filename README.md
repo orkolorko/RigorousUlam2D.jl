@@ -11,18 +11,19 @@
 
 RigorousUlam2D.jl provides mathematically verified bounds for transfer operators of 2D dynamical systems with:
 - **Interval arithmetic** for guaranteed enclosures
-- **Iterative refinement** with diameter-based stopping for optimal efficiency
-- **Sparse matrices** for scalable computation
-- **Additive noise** support via Minkowski sums
-- **Periodic boundary conditions** for torus topology
+- **Adaptive partitioning** with forward flagging for optimal efficiency
+- **Diameter-based stopping** for direct error control
+- **Unified architecture** handling deterministic/noisy systems and absorbing/periodic boundary conditions
+- **Graph-based sparsity optimization** for dramatic speedup
+- **Operator decomposition** P_noisy = N ∘ P for flexible noise handling
 
 All computations are **rigorously verified** - suitable for computer-assisted proofs.
 
 ## Key Features
 
-### Iterative Refinement (Recommended Method)
+### Adaptive Partitioning with Forward Flagging
 
-For **contracting maps** and **systems with attractors**, use the iterative refinement algorithm with diameter-based stopping:
+For **contracting maps** and **systems with attractors**, use adaptive partitioning with diameter-based stopping:
 
 ```julia
 using RigorousUlam2D
@@ -35,35 +36,41 @@ F(x, y) = (contracting_map_x(x, y), contracting_map_y(x, y))
 domain = IntervalBox(interval(-1.0, 1.0), interval(-1.0, 1.0))
 noise = uniform_noise_box(0.01, 2)  # Optional additive noise
 
-# Iterative refinement with diameter-based stopping
-partition, info = compute_effective_partition_adaptive(
+# Adaptive partition with diameter-based stopping
+partition, transition_graph = build_adaptive_partition(
     F, domain, noise,
-    initial_depth=2,           # Start with coarse partition (4×4)
+    initial_depth=2,           # Start with coarse partition (2^4 boxes)
     max_diameter=0.01,         # Target error tolerance
     enclosure_method=first_order_enclosure,
-    safety_margin=1.2,
+    safety_margin=1.1,
     verbose=true
 )
 
-# Build transition matrix
-P, U = build_noisy_transition_matrix(F, partition, noise, maxdepth=8, ε=1e-4)
+# Build transition matrix (using graph for speedup)
+P, U = build_transition_matrix(
+    F, partition, noise,
+    transition_graph=transition_graph,
+    max_iterations=8, ε=1e-4
+)
 normalize_columns!(P)
 
 # Analyze
 stats = estimate_sparsity(P)
 println("Partition: $(partition.n_boxes) boxes")
-println("Diameter: $(info.partition_diameter)")
-println("Sparsity: $(100*stats.sparsity)%")
+max_diam = maximum(box_width(box) for box in partition.boxes)
+println("Diameter: $(max_diam)")
+println("Sparsity: $(round(100*stats.sparsity, digits=1))%")
+println("Graph sparsity: $(round(100*(1 - nnz(transition_graph)/partition.n_boxes^2), digits=1))%")
 ```
 
-**Why iterative refinement?**
+**Why adaptive partitioning?**
 
-1. **Forward flagging**: Computes F(box) + noise to identify visited regions
-2. **Selective refinement**: Only subdivides boxes that are part of the attractor
-3. **Diameter control**: Direct link to theoretical error bounds (Theorem B)
-4. **Automatic adaptation**: Adjusts to the geometry of the dynamics
+1. **Forward flagging**: Computes F(box) + noise to identify reachable boxes
+2. **Greedy subdivision**: Only subdivides boxes violating diameter criterion
+3. **Diameter control**: Direct link to theoretical error bounds
+4. **Graph optimization**: Tracks potential transitions for 10-100× matrix speedup
 
-**Performance**: For contracting maps, reduces computation by **10-100× compared to naive partitioning**, while maintaining the same rigorous guarantees.
+**Performance**: For contracting maps, reduces computation by **10-100× compared to uniform partitioning**, while maintaining the same rigorous guarantees.
 
 ### Diameter-Based Stopping
 
@@ -90,6 +97,7 @@ Pkg.add("RigorousUlam2D")
 
 ```julia
 using RigorousUlam2D
+using IntervalArithmetic, IntervalBoxes
 
 # Contracting Lorenz map
 function contracting_lorenz(x, y; s=2.5, r=6.0, ρ=0.8)
@@ -104,109 +112,165 @@ end
 domain = IntervalBox(interval(-0.5, 0.5), interval(-0.5, 0.5))
 noise = uniform_noise_box(0.01, 2)
 
-# Iterative refinement: automatically finds effective domain and optimal partition
-partition, info = compute_effective_partition_adaptive(
+# Adaptive partitioning: automatically finds effective domain
+partition, graph = build_adaptive_partition(
     contracting_lorenz, domain, noise,
     initial_depth=2,
     max_diameter=0.05,
     verbose=true
 )
 
+# Build transition matrix with graph optimization
+P, U = build_transition_matrix(
+    contracting_lorenz, partition, noise,
+    transition_graph=graph,
+    max_iterations=8, ε=1e-4
+)
+
 # Results:
-# - Domain reduced by ~23× (only partitions visited regions)
+# - Adaptive: ~50-100 boxes (vs 256+ uniform)
 # - Diameter ≤ 0.05 (error control)
-# - ~50-100 boxes instead of 256+ (efficiency)
+# - Graph provides 10-100× speedup for matrix construction
 ```
 
-### Example 2: Standard Ulam Method
+### Example 2: Hénon Map with Periodic BC
 
-For general maps without contraction:
+For maps on the torus:
 
 ```julia
-# Create uniform partition
-boxes = [domain]
-for _ in 1:4
-    boxes = vcat([quadrisect(b) for b in boxes]...)
-end
-partition = UlamPartition(boxes, domain)
+using RigorousUlam2D
+using IntervalArithmetic, IntervalBoxes
+using LinearAlgebra
 
-# Build transition matrix
-P, U = build_transition_matrix(F, partition, maxdepth=10, ε=1e-6)
+# Hénon map (rescaled)
+function henon_rescaled(x, y; a=1.4, b=0.3)
+    x_phys = 1.5 * x
+    y_phys = 0.5 * y
+    x_new = (1 - a * x_phys^2 + y_phys) / 1.5
+    y_new = (b * x_phys) / 0.5
+    return (x_new, y_new)
+end
+
+domain = IntervalBox(interval(-1.0, 1.0), interval(-1.0, 1.0))
+noise = uniform_noise_box(0.025, 2)
+
+# Adaptive partition with periodic BC
+partition, graph = build_adaptive_partition(
+    henon_rescaled, domain, noise,
+    max_diameter=0.02,
+    initial_depth=2,
+    periodic=true,  # Enable periodic boundary conditions
+    verbose=true
+)
+
+# Build matrix
+P, U = build_transition_matrix(
+    henon_rescaled, partition, noise,
+    transition_graph=graph,
+    periodic=true,
+    max_iterations=8, ε=1e-4
+)
 normalize_columns!(P)
 
-# Compute invariant measure (leading eigenvector)
-using LinearAlgebra
-λ, v = eigs(Matrix(P), nev=1, which=:LM)
-measure = abs.(v[:, 1])
+# Compute leading eigenvalues
+λ = eigvals(Matrix(P))
+λ_sorted = sort(abs.(λ), rev=true)
+println("Spectral gap: ", 1.0 - λ_sorted[2])
 ```
 
-## Algorithm: Iterative Refinement
+## Algorithm: Adaptive Partitioning with Forward Flagging
 
-The iterative refinement algorithm works as follows:
+The adaptive partitioning algorithm works as follows:
 
-1. **Initialize**: Start with coarse partition (e.g., depth=2 → 16 boxes)
+1. **Initialize**: Start with coarse partition (e.g., `initial_depth=2` → 2^(N·2) boxes)
 
 2. **Forward Flagging**: For each box B in current partition:
-   - Compute rigorous enclosure: img = F(B) ⊕ noise ⊕ margin
-   - Tag all boxes touched by img
+   - Compute rigorous enclosure: `img = F(B) ⊕ noise ⊕ margin`
+   - Flag all boxes that intersect with `img`
+   - Track transition: if box j intersects img(B_i), set `graph[i,j] = true`
 
-3. **Selective Refinement**: Subdivide only tagged boxes (quadrisect in 2D)
+3. **Greedy Refinement**: Only subdivide flagged boxes where `box_width(B) > max_diameter`
+   - Uses `bisect_box` (splits along widest dimension)
+   - Boxes already meeting diameter criterion are kept as-is
 
 4. **Stopping Criterion**:
-   - If diameter ≤ max_diameter → DONE
+   - If all flagged boxes have `diameter ≤ max_diameter` → DONE
    - If max iterations reached → DONE
    - Otherwise, go to step 2
 
-5. **Output**: Partition focused on effective domain (attractor) with controlled diameter
+5. **Output**:
+   - Partition focused on reachable set (effective domain)
+   - Transition graph encoding potential mass transfers
 
-**Key Insight**: Boxes outside the attractor are never tagged, so they're never refined. This dramatically reduces computation for contracting maps.
+**Key Insights**:
+- Boxes outside the reachable set are never flagged, so they're never refined
+- Greedy subdivision ensures efficient convergence
+- Transition graph provides 10-100× speedup for matrix construction
 
 ## API Reference
 
-### Domain Restriction
+### Adaptive Partitioning
 
 ```julia
-# Iterative refinement (RECOMMENDED for contracting maps)
-compute_effective_partition_adaptive(F, domain, noise;
-    initial_depth=3,           # Starting partition depth
-    max_diameter=nothing,      # Diameter-based stopping
+# RECOMMENDED: Adaptive partition with forward flagging
+build_adaptive_partition(F, domain, noise=nothing;
+    initial_depth=2,           # Starting partition depth
+    max_diameter=nothing,      # Diameter-based stopping (recommended)
     refinement_levels=nothing, # Or fixed number of iterations
     enclosure_method=first_order_enclosure,
     safety_margin=1.1,
+    periodic=false,            # Enable periodic boundary conditions
     verbose=false)
+# Returns: (partition, transition_graph)
 
-# Standard effective domain (one-shot)
-compute_effective_domain(F, domain, noise;
-    subdivision_depth=4,
+# Uniform partition (baseline)
+build_uniform_partition(domain, depth)
+# Returns: partition
+```
+
+### Unified Transition Matrix Builder
+
+```julia
+# Handles both deterministic/noisy and absorbing/periodic
+build_transition_matrix(F, partition, noise=nothing;
+    transition_graph=nothing,  # Optional speedup from build_adaptive_partition
+    periodic=false,            # Periodic boundary conditions
     enclosure_method=first_order_enclosure,
-    safety_margin=1.1)
+    max_iterations=30,
+    ε=1e-6,
+    use_lower_bound=true)
+# Returns: (P, U) where P is transition matrix, U is uncertainty
+```
+
+### Operator Decomposition
+
+```julia
+# Build noise convolution operator: P_noisy = N * P_deterministic
+build_noise_convolution_operator(noise, partition;
+    transition_graph=nothing,
+    periodic=false,
+    enclosure_method=first_order_enclosure,
+    max_iterations=30,
+    ε=1e-6)
+# Returns: N (noise operator)
 ```
 
 ### Enclosure Methods
 
 ```julia
 zeroth_order_enclosure(F, box)         # Pure interval arithmetic
-first_order_enclosure(F, box)          # Mean value form (tighter)
-adaptive_enclosure(F, box, method)     # Adaptive subdivision
-```
-
-### Matrix Construction
-
-```julia
-build_transition_matrix(F, partition; maxdepth, ε, use_lower_bound)
-build_noisy_transition_matrix(F, partition, noise; ...)
-build_noisy_transition_matrix_periodic(F, partition, noise, domain; ...)
-normalize_columns!(P)
+first_order_enclosure(F, box)          # Mean value form (tighter, recommended)
 ```
 
 ### Utilities
 
 ```julia
-quadrisect(box)                        # Split 2D box into 4
+normalize_columns!(P)                  # Convert to stochastic matrix
+estimate_sparsity(P)                   # Matrix statistics
 box_measure(box)                       # Lebesgue measure
 box_width(box)                         # Maximum diameter
-issubset_box(A, B)                     # Rigorous subset test
-estimate_sparsity(P)                   # Matrix statistics
+bisect_box(box)                        # Split along widest dimension
+uniform_noise_box(σ, N)               # Uniform noise [-σ, σ]^N
 ```
 
 ## Documentation
@@ -239,16 +303,22 @@ Test coverage:
 
 For maps where the forward image is strictly contained in the domain:
 
-| Method | Boxes | Matrix Entries | Speedup |
-|--------|-------|----------------|---------|
-| Naive (uniform partition) | 256 | 65,536 | 1× |
-| Normal domain restriction | 256 | 65,536 | ~1× |
-| **Iterative refinement** | ~50-100 | ~2,500-10,000 | **10-25×** |
+| Method | Boxes | Graph NNZ | Speedup |
+|--------|-------|-----------|---------|
+| Uniform partition (depth 5) | 1024 | 1,048,576 | 1× |
+| **Adaptive (diameter 0.03)** | ~50-100 | ~2,500-10,000 | **10-100×** |
+
+### Speedup Sources
+
+1. **Fewer boxes** (10-20× reduction): Only refines reachable set
+2. **Greedy subdivision**: Efficient convergence to target diameter
+3. **Graph sparsity** (10-100× reduction): Only tracks actual transitions
+4. **Combined effect**: 100-1000× fewer rel_size computations!
 
 ### Typical Timings
 
-- Iterative refinement: 1-5 minutes (contracting map, depth=5)
-- Naive approach: 1-10 hours (same resolution)
+- Adaptive partitioning + matrix: 1-10 minutes (contracting map, diameter 0.02-0.05)
+- Uniform partition + matrix: 1-10 hours (same resolution)
 - **ROI**: 10-100× speedup with same rigorous guarantees!
 
 ## Citation

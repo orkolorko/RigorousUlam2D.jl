@@ -44,7 +44,7 @@ using Test
         domain = IntervalBox(interval(0.0, 1.0), interval(0.0, 1.0))
         partition = UlamPartition(boxes, domain)
 
-        P, U = build_transition_matrix(F_id, partition, maxdepth=6, ε=1e-4)
+        P, U = build_transition_matrix(F_id, partition, max_iterations=6, ε=1e-4)
 
         @test size(P) == (4, 4)
         @test issparse(P)
@@ -107,7 +107,7 @@ using Test
 
         partition = UlamPartition(boxes, domain)
 
-        P, U = build_transition_matrix(F_contract, partition, maxdepth=5, ε=1e-3)
+        P, U = build_transition_matrix(F_contract, partition, max_iterations=5, ε=1e-3)
 
         @test size(P) == (16, 16)
         @test issparse(P)

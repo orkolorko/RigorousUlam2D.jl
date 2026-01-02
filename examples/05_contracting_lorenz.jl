@@ -129,7 +129,7 @@ t_det = @elapsed begin
         contracting_lorenz, partition_adaptive,
         transition_graph=graph,
         enclosure_method=zeroth_order_enclosure,
-        maxdepth=10,
+        max_iterations=10,
         ε=1e-5
     )
 end

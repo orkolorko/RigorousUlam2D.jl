@@ -52,7 +52,7 @@ t1 = @elapsed begin
     P_det, U_det = build_transition_matrix(
         F, partition,
         transition_graph=graph,
-        maxdepth=8, ε=1e-4
+        max_iterations=8, ε=1e-4
     )
     println("    P non-zeros: $(nnz(P_det))")
 
@@ -61,7 +61,7 @@ t1 = @elapsed begin
     N = build_noise_convolution_operator(
         noise, partition,
         transition_graph=graph,
-        maxdepth=8, ε=1e-4
+        max_iterations=8, ε=1e-4
     )
     println("    N non-zeros: $(nnz(N))")
 
@@ -92,7 +92,7 @@ for σ in noise_levels
     noise_new = uniform_noise_box(σ, 2)
     N_new = build_noise_convolution_operator(noise_new, partition,
                                               transition_graph=graph,
-                                              maxdepth=8, ε=1e-4)
+                                              max_iterations=8, ε=1e-4)
     P_noisy_new = N_new * P_det
     @printf("  σ = %.2f: %d non-zeros\n", σ, nnz(P_noisy_new))
 end

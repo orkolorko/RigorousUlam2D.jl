@@ -33,16 +33,18 @@ F(x, y) = (0.5*x + 0.25, 0.5*y + 0.25)
 # Step 2: Setup domain
 domain = IntervalBox(interval(0.0, 1.0), interval(0.0, 1.0))
 
-# Step 3: Create partition with domain restriction
-partition, eff_domain, info = create_restricted_partition(
+# Step 3: Create adaptive partition
+partition, transition_graph = build_adaptive_partition(
     F, domain, nothing,  # no noise
-    partition_depth=4,   # 256 boxes
+    initial_depth=4,
+    refinement_levels=2,
     verbose=true
 )
 
-# Step 4: Build transition matrix
+# Step 4: Build transition matrix (using graph for speedup)
 P, U = build_transition_matrix(
     F, partition,
+    transition_graph=transition_graph,
     maxdepth=8,
     ε=1e-4
 )
@@ -81,21 +83,32 @@ end
 domain = IntervalBox(interval(-1.0, 1.0), interval(-1.0, 1.0))
 noise = uniform_noise_box(0.025, 2)  # Square noise of size 0.05
 
-# Create partition with diameter-based stopping (NEW!)
-partition, eff_domain, info = create_restricted_partition(
+# Create partition with diameter-based stopping
+partition, transition_graph = build_adaptive_partition(
     henon_rescaled, domain, noise,
-    max_diameter=0.02,  # Target error tolerance
-    subdivision_depth=2,
+    max_diameter=0.02,
+    initial_depth=2,
+    periodic=true,
     verbose=true
 )
 
-# Build matrix with periodic BC
-P, U = build_noisy_transition_matrix_periodic(
-    henon_rescaled, partition, noise, domain,
+# Build operators separately (operator composition)
+P_det, U = build_transition_matrix(
+    henon_rescaled, partition,
+    transition_graph=transition_graph,
+    periodic=true,
     enclosure_method=first_order_enclosure,
-    maxdepth=8,
-    ε=1e-4
+    maxdepth=8, ε=1e-4
 )
+
+N = build_noise_convolution_operator(
+    noise, partition,
+    transition_graph=transition_graph,
+    periodic=true, ε=1e-4
+)
+
+# Compose: P_noisy = N * P_det
+P = N * P_det
 
 # Analyze
 normalize_columns!(P)
@@ -108,44 +121,49 @@ println("Sparsity: ", round(100*stats.sparsity, digits=2), "%")
 For contracting maps, computing on the full domain is wasteful:
 
 ```julia
-# WITHOUT domain restriction
-boxes_full = [domain]
-for _ in 1:5
-    boxes_full = vcat([quadrisect(b) for b in boxes_full]...)
-end
-n_full = length(boxes_full)  # 1024 boxes
-println("Full domain: $n_full boxes")
+# WITHOUT adaptive refinement
+partition_full = build_uniform_partition(domain, 5)
+n_full = partition_full.n_boxes  # 1024 boxes
+println("Uniform partition: $n_full boxes")
 
-# WITH domain restriction
-partition_opt, _, info = create_restricted_partition(
-    F, domain, nothing, partition_depth=5
+# WITH adaptive refinement (forward flagging)
+partition_opt, graph = build_adaptive_partition(
+    F, domain, nothing,
+    initial_depth=2,
+    refinement_levels=3,
+    verbose=true
 )
-println("Restricted: $(partition_opt.n_boxes) boxes")
+println("Adaptive partition: $(partition_opt.n_boxes) boxes")
 println("Reduction: $(round(n_full/partition_opt.n_boxes, digits=2))×")
 ```
 
-Typical results: **5-10× domain reduction → 25-100× fewer boxes → 100-1000× fewer matrix entries!**
+Typical results: **Adaptive partitioning reduces boxes by 5-100× → 100-1000× fewer matrix entries!**
 
 ## Diameter-Based Stopping (Error Control)
 
 Instead of guessing the partition depth, specify the target error directly:
 
 ```julia
-# Traditional: guess depth
-partition1, _, _ = create_restricted_partition(
+# Traditional: fixed refinement levels
+partition1, graph1 = build_adaptive_partition(
     F, domain, noise,
-    partition_depth=5  # Is this enough? Too much?
+    initial_depth=2,
+    refinement_levels=5  # Is this enough? Too much?
 )
 
-# NEW: specify error tolerance
-partition2, _, info = create_restricted_partition(
+# NEW: specify error tolerance via diameter
+partition2, graph2 = build_adaptive_partition(
     F, domain, noise,
-    max_diameter=0.01  # Achieve 1% error bound
+    initial_depth=2,
+    max_diameter=0.01,  # Achieve ~1% error bound
+    verbose=true
 )
 
-println("Target error: 0.01")
-println("Achieved diameter: ", info.partition_diameter)
-println("Automatic boxes: ", info.n_boxes)
+println("Target diameter: 0.01")
+println("Final boxes: ", partition2.n_boxes)
+# Check actual diameter
+max_diam = maximum(box_width(box) for box in partition2.boxes)
+println("Achieved diameter: ", max_diam)
 ```
 
 According to the theory, the Ulam approximation error is bounded by `C × diameter`, where `C` depends on the system. This provides direct control over approximation quality!

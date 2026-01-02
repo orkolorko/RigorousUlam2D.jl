@@ -15,6 +15,7 @@ using RigorousUlam2D
 using IntervalArithmetic, IntervalBoxes
 using LinearAlgebra, SparseArrays
 using Printf
+using CairoMakie
 
 println("="^70)
 println("Example 1: Simple Contracting Map")
@@ -93,6 +94,30 @@ if size(P, 1) <= 500
     println("  Leading eigenvalue: ", round(λ[idx], digits=6))
     println("  Invariant measure computed successfully")
     println("  Active boxes (>1e-4): ", count(μ .> 1e-4))
+
+    # Visualization
+    println("\nCreating visualization...")
+    x_centers = [mid(box[1]) for box in partition.boxes]
+    y_centers = [mid(box[2]) for box in partition.boxes]
+    densities = [μ[i] / box_measure(partition.boxes[i]) for i in 1:partition.n_boxes]
+
+    fig = Figure(size=(800, 700))
+    ax = Axis(fig[1, 1],
+        xlabel="x", ylabel="y",
+        title="Invariant Density - Contracting Map",
+        aspect=1
+    )
+
+    sc = scatter!(ax, x_centers, y_centers,
+        color=densities,
+        colormap=:viridis,
+        markersize=12,
+        colorrange=(0, maximum(densities))
+    )
+
+    Colorbar(fig[1, 2], sc, label="Density ρ(x,y)")
+    save("examples/01_contracting_map_output.png", fig)
+    println("Saved visualization to examples/01_contracting_map_output.png")
 else
     println("  Partition too large for dense eigenvalue computation")
     println("  Consider using iterative methods (Arnoldi, etc.)")

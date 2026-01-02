@@ -17,6 +17,7 @@ using RigorousUlam2D
 using IntervalArithmetic, IntervalBoxes
 using LinearAlgebra, SparseArrays
 using Printf
+using CairoMakie
 
 println("="^70)
 println("Example 5: Contracting Lorenz Map")
@@ -221,6 +222,55 @@ println("\nConclusion:")
 println("  Adaptive partitioning with forward flagging is ESSENTIAL for")
 println("  contracting maps. Without it, this computation would take")
 println("  $(round(estimated_time_without_graph/60, digits=1)) minutes instead of $(round(t_matrix, digits=1)) seconds!")
+
+#  Visualization
+if size(P, 1) <= 500
+    println("\n" * "="^70)
+    println("Creating Visualizations")
+    println("="^70)
+
+    # Prepare density data
+    x_centers = [mid(box[1]) for box in partition_adaptive.boxes]
+    y_centers = [mid(box[2]) for box in partition_adaptive.boxes]
+    densities = [μ[i] / box_measure(partition_adaptive.boxes[i]) for i in 1:partition_adaptive.n_boxes]
+
+    # Create figure
+    fig = Figure(size=(1200, 500))
+
+    # Plot 1: Partition structure
+    ax1 = Axis(fig[1, 1],
+        xlabel="x", ylabel="y",
+        title="Adaptive Partition ($(partition_adaptive.n_boxes) boxes)",
+        aspect=1
+    )
+
+    # Draw partition boxes
+    for box in partition_adaptive.boxes
+        x_coords = [inf(box[1]), sup(box[1]), sup(box[1]), inf(box[1]), inf(box[1])]
+        y_coords = [inf(box[2]), inf(box[2]), sup(box[2]), sup(box[2]), inf(box[2])]
+        lines!(ax1, x_coords, y_coords, color=:gray, linewidth=0.5)
+    end
+
+    # Plot 2: Invariant density
+    ax2 = Axis(fig[1, 2],
+        xlabel="x", ylabel="y",
+        title="Invariant Density",
+        aspect=1
+    )
+
+    sc = scatter!(ax2, x_centers, y_centers,
+        color=densities,
+        colormap=:viridis,
+        markersize=10,
+        colorrange=(0, maximum(densities))
+    )
+
+    Colorbar(fig[1, 3], sc, label="Density ρ(x,y)")
+
+    # Save figure
+    save("examples/05_contracting_lorenz_output.png", fig)
+    println("\nSaved visualization to examples/05_contracting_lorenz_output.png")
+end
 
 println("\n" * "="^70)
 println("Example completed successfully!")

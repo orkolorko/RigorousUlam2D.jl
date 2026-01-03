@@ -253,6 +253,11 @@ N = build_noise_convolution_operator(noise, partition, transition_graph=noise_gr
 # Note
 The combined graph ensures correct noise propagation: mass spreads both locally
 (within noise distance) and follows the dynamics (F then adds noise).
+
+# TODO: This could be built incrementally during adaptive partitioning for efficiency:
+# - When a box is bisected, the two children are adjacent (within noise distance)
+# - Add edges between adjacent boxes during subdivision
+# - Much faster than O(n²) distance checks
 """
 function build_topological_graph(partition::UlamPartition{N}, noise::IntervalBox{N};
                                 periodic::Bool=false,

@@ -58,7 +58,7 @@ using Test
         domain = IntervalBox(interval(0.0, 1.0), interval(0.0, 1.0))
 
         # Use the new build_adaptive_partition function
-        partition, graph = build_adaptive_partition(F_expand, domain, nothing,
+        partition, dyn_graph, topo_graph = build_adaptive_partition(F_expand, domain, nothing,
                                                     initial_depth=2,
                                                     max_diameter=0.1)
 

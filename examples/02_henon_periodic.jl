@@ -40,7 +40,7 @@ println("  Boundary conditions: Periodic (torus)")
 
 # Build adaptive partition with periodic BC
 println("\nBuilding adaptive partition with periodic BC...")
-partition, transition_graph = build_adaptive_partition(
+partition, dyn_graph, topo_graph = build_adaptive_partition(
     henon_rescaled, domain, noise,
     max_diameter=0.02,
     initial_depth=2,
@@ -53,13 +53,13 @@ println("\nPartition statistics:")
 @printf("  Achieved diameter: %.6f\n", max_diam)
 println("  Number of boxes: $(partition.n_boxes)")
 @printf("  Graph sparsity: %.1f%%\n",
-        100*(1 - nnz(transition_graph)/partition.n_boxes^2))
+        100*(1 - nnz(dyn_graph)/partition.n_boxes^2))
 
 # Build transition matrix with periodic BC using operator composition
 println("\nBuilding deterministic transition matrix with periodic BC...")
 P_det, U_det = build_transition_matrix(
     henon_rescaled, partition,
-    transition_graph=transition_graph,
+    transition_graph=dyn_graph,
     periodic=true,  # Enable periodic BC
     enclosure_method=first_order_enclosure,
     max_iterations=8,
@@ -69,7 +69,7 @@ P_det, U_det = build_transition_matrix(
 println("\nBuilding noise convolution operator...")
 N = build_noise_convolution_operator(
     noise, partition,
-    transition_graph=transition_graph,
+    transition_graph=topo_graph,
     periodic=true
 )
 

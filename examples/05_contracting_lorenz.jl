@@ -89,7 +89,7 @@ target_diameter = 0.03125  # Approximately same as uniform depth 5
 
 println("\nBuilding adaptive partition (target diameter: $target_diameter)...")
 t_partition = @elapsed begin
-    partition_adaptive, graph = build_adaptive_partition(
+    partition_adaptive, dyn_graph, topo_graph = build_adaptive_partition(
         contracting_lorenz, domain, noise,
         max_diameter=target_diameter,
         initial_depth=2,
@@ -106,13 +106,13 @@ println("\nAdaptive partition results:")
 @printf("  Target diameter: %.6f\n", target_diameter)
 @printf("  Achieved diameter: %.6f\n", max_diam)
 println("  Final boxes: $(partition_adaptive.n_boxes)")
-println("  Graph non-zeros: $(nnz(graph))")
-@printf("  Graph density: %.2f%%\n", 100*nnz(graph)/partition_adaptive.n_boxes^2)
-@printf("  Graph sparsity: %.2f%%\n", 100*(1 - nnz(graph)/partition_adaptive.n_boxes^2))
+println("  Graph non-zeros: $(nnz(dyn_graph))")
+@printf("  Graph density: %.2f%%\n", 100*nnz(dyn_graph)/partition_adaptive.n_boxes^2)
+@printf("  Graph sparsity: %.2f%%\n", 100*(1 - nnz(dyn_graph)/partition_adaptive.n_boxes^2))
 
 # Compute reduction factors
 box_reduction = n_uniform / partition_adaptive.n_boxes
-graph_reduction = n_uniform^2 / nnz(graph)
+graph_reduction = n_uniform^2 / nnz(dyn_graph)
 
 println("\nReduction factors:")
 @printf("  Boxes: %.1f× fewer\n", box_reduction)
@@ -127,7 +127,7 @@ println("\nBuilding deterministic transition matrix...")
 t_det = @elapsed begin
     P_det, U_det = build_transition_matrix(
         contracting_lorenz, partition_adaptive,
-        transition_graph=graph,
+        transition_graph=dyn_graph,
         enclosure_method=zeroth_order_enclosure,
         max_iterations=8,
         ε=1e-4
@@ -136,14 +136,11 @@ end
 
 println("\nBuilding noise convolution operator...")
 t_noise = @elapsed begin
-    # Build topological graph for noise (based on distance, not dynamics)
-    noise_graph = build_topological_graph(partition_adaptive, noise,
-                                         dynamical_graph=graph)
-    println("  Noise graph non-zeros: $(nnz(noise_graph)) (vs dynamics: $(nnz(graph)))")
+    println("  Topo graph non-zeros: $(nnz(topo_graph)) (vs dynamics: $(nnz(dyn_graph)))")
 
     N = build_noise_convolution_operator(
         noise, partition_adaptive,
-        transition_graph=noise_graph,
+        transition_graph=topo_graph,
         ε=1e-3,
         max_iterations=10
     )
@@ -221,7 +218,7 @@ println("="^70)
 println("\nKey Results:")
 println("  ✓ Adaptive partitioning: $(partition_adaptive.n_boxes) boxes (vs $n_uniform uniform)")
 println("  ✓ Box reduction: $(round(box_reduction, digits=1))×")
-println("  ✓ Graph sparsity: $(round(100*(1 - nnz(graph)/partition_adaptive.n_boxes^2), digits=1))%")
+println("  ✓ Graph sparsity: $(round(100*(1 - nnz(dyn_graph)/partition_adaptive.n_boxes^2), digits=1))%")
 println("  ✓ Estimated speedup: $(round(graph_reduction, digits=1))×")
 println("\nConclusion:")
 println("  Adaptive partitioning with forward flagging is ESSENTIAL for")

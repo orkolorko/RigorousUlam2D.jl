@@ -35,7 +35,7 @@ println("  Noise: ±0.01 uniform")
 
 # Build adaptive partition with diameter-based stopping
 println("\nBuilding adaptive partition...")
-partition, transition_graph = build_adaptive_partition(
+partition, dyn_graph, topo_graph = build_adaptive_partition(
     F, domain, noise,
     initial_depth=2,
     max_diameter=0.03,
@@ -49,15 +49,15 @@ println("\nPartition statistics:")
 println("  Target diameter: 0.03")
 @printf("  Achieved diameter: %.6f\n", max_diam)
 println("  Number of boxes: $(partition.n_boxes)")
-println("  Graph non-zeros: $(nnz(transition_graph))")
+println("  Graph non-zeros: $(nnz(dyn_graph))")
 @printf("  Graph sparsity: %.1f%%\n",
-        100*(1 - nnz(transition_graph)/partition.n_boxes^2))
+        100*(1 - nnz(dyn_graph)/partition.n_boxes^2))
 
 # Build deterministic transition matrix (without noise)
 println("\nBuilding deterministic transition matrix P...")
 P, U = build_transition_matrix(
     F, partition,  # No noise parameter!
-    transition_graph=transition_graph,
+    transition_graph=dyn_graph,
     max_iterations=8,
     ε=1e-4
 )
@@ -66,7 +66,7 @@ P, U = build_transition_matrix(
 println("\nBuilding noise convolution operator N...")
 N = build_noise_convolution_operator(
     noise, partition,
-    transition_graph=transition_graph
+    transition_graph=topo_graph
 )
 
 # Compose to get noisy transition matrix

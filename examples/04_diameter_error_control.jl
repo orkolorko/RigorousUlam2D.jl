@@ -35,7 +35,7 @@ println("-"^70)
 
 for target in target_diameters
     t = @elapsed begin
-        partition, graph = build_adaptive_partition(
+        partition, dyn_graph, topo_graph = build_adaptive_partition(
             F, domain, noise,
             max_diameter=target,
             initial_depth=2,
@@ -46,7 +46,7 @@ for target in target_diameters
     achieved_diam = maximum(box_width(box) for box in partition.boxes)
 
     @printf("%-12.6f | %-12.6f | %-10d | %-12d | %-12.3f\n",
-            target, achieved_diam, partition.n_boxes, nnz(graph), t)
+            target, achieved_diam, partition.n_boxes, nnz(dyn_graph), t)
 end
 
 println("-"^70)
@@ -74,7 +74,7 @@ println("="^70)
 
 println("\nFixed refinement levels:")
 for levels in [1, 2, 3, 4]
-    partition, graph = build_adaptive_partition(
+    partition, dyn_graph, topo_graph = build_adaptive_partition(
         F, domain, noise,
         initial_depth=2,
         refinement_levels=levels,
@@ -87,7 +87,7 @@ end
 
 println("\nDiameter-based (automatic level selection):")
 for target in [0.1, 0.05, 0.02]
-    partition, graph = build_adaptive_partition(
+    partition, dyn_graph, topo_graph = build_adaptive_partition(
         F, domain, noise,
         initial_depth=2,
         max_diameter=target,

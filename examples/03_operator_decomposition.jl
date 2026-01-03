@@ -31,7 +31,7 @@ println("  Noise: ±0.02 uniform")
 
 # Build adaptive partition
 println("\nBuilding adaptive partition...")
-partition, graph = build_adaptive_partition(
+partition, dyn_graph, topo_graph = build_adaptive_partition(
     F, domain, noise,
     max_diameter=0.03,
     initial_depth=2,
@@ -39,7 +39,7 @@ partition, graph = build_adaptive_partition(
 )
 
 println("  Boxes: $(partition.n_boxes)")
-println("  Graph non-zeros: $(nnz(graph))")
+println("  Graph non-zeros: $(nnz(dyn_graph))")
 
 # Method 1: Direct computation of noisy operator
 println("\n" * "="^70)
@@ -51,7 +51,7 @@ t1 = @elapsed begin
     println("\n  Building P (deterministic)...")
     P_det, U_det = build_transition_matrix(
         F, partition,
-        transition_graph=graph,
+        transition_graph=dyn_graph,
         max_iterations=8, ε=1e-4
     )
     println("    P non-zeros: $(nnz(P_det))")
@@ -60,7 +60,7 @@ t1 = @elapsed begin
     println("\n  Building N (noise convolution)...")
     N = build_noise_convolution_operator(
         noise, partition,
-        transition_graph=graph,
+        transition_graph=topo_graph,
         max_iterations=8, ε=1e-4
     )
     println("    N non-zeros: $(nnz(N))")
@@ -91,7 +91,7 @@ println("\nComputing P_noisy for multiple noise levels...")
 for σ in noise_levels
     noise_new = uniform_noise_box(σ, 2)
     N_new = build_noise_convolution_operator(noise_new, partition,
-                                              transition_graph=graph,
+                                              transition_graph=topo_graph,
                                               max_iterations=8, ε=1e-4)
     P_noisy_new = N_new * P_det
     @printf("  σ = %.2f: %d non-zeros\n", σ, nnz(P_noisy_new))

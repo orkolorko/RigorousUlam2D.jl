@@ -254,13 +254,16 @@ N = build_noise_convolution_operator(noise, partition, transition_graph=noise_gr
 The combined graph ensures correct noise propagation: mass spreads both locally
 (within noise distance) and follows the dynamics (F then adds noise).
 
-# TODO: This could be built incrementally during adaptive partitioning for efficiency:
-# Algorithm:
-# 1. Start with connectivity graph at lowest level (initial partition) - small n, so n² is manageable
-# 2. During forward flagging: remove unflagged domains → smaller partition and graph
-# 3. During bisection: when adding two children, add their edge to the graph
-# 4. Result: topological graph built incrementally without O(n²) distance checks
-# This would eliminate the need for this post-processing function entirely!
+# NOTE: As of version 0.2, build_adaptive_partition returns the topological graph directly.
+# This standalone function is kept for backward compatibility but is DEPRECATED for adaptive partitions.
+#
+# Preferred usage:
+#   partition, dyn_graph, topo_graph = build_adaptive_partition(F, domain, noise, ...)
+#   N = build_noise_convolution_operator(noise, partition, transition_graph=topo_graph, ...)
+#
+# This function can still be used if you built the partition with build_uniform_partition:
+#   partition = build_uniform_partition(domain, depth)
+#   topo_graph = build_topological_graph(partition, noise, ...)
 """
 function build_topological_graph(partition::UlamPartition{N}, noise::IntervalBox{N};
                                 periodic::Bool=false,

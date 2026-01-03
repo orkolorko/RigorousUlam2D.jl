@@ -204,6 +204,56 @@ function intersect_boxes(A::IntervalBox{N}, B::IntervalBox{N}) where {N}
 end
 
 """
+    build_initial_topological_connectivity(boxes::Vector{<:IntervalBox{N}},
+                                          noise::Union{IntervalBox{N}, Nothing},
+                                          domain::IntervalBox{N},
+                                          periodic::Bool) where {N}
+
+Build topological connectivity graph for a small set of boxes (initial partition).
+
+For each pair of boxes (i, j), check if box_i ⊕ noise intersects box_j.
+This is only efficient when the number of boxes is small (initial partition).
+
+Returns a sparse boolean matrix where [i,j] = true means boxes i and j are connected.
+"""
+function build_initial_topological_connectivity(boxes::Vector{<:IntervalBox{N}},
+                                               noise::Union{IntervalBox{N}, Nothing},
+                                               domain::IntervalBox{N},
+                                               periodic::Bool) where {N}
+    # If no noise, topological graph is just diagonal (identity)
+    if noise === nothing
+        n = length(boxes)
+        return sparse(1:n, 1:n, trues(n), n, n)
+    end
+
+    n = length(boxes)
+    I_indices = Int[]
+    J_indices = Int[]
+
+    for j in 1:n
+        source_box = boxes[j]
+
+        # Compute the extent of source + noise
+        noisy_source = minkowski_sum(source_box, noise)
+        if periodic
+            noisy_source = apply_periodic_bc(noisy_source, domain)
+        end
+
+        # Find all boxes that could overlap with noisy source
+        for i in 1:n
+            target_box = boxes[i]
+
+            if !isdisjoint_box(noisy_source, target_box)
+                push!(I_indices, i)
+                push!(J_indices, j)
+            end
+        end
+    end
+
+    return sparse(I_indices, J_indices, true, n, n)
+end
+
+"""
     build_uniform_partition(domain::IntervalBox{N}, depth::Int) where {N}
 
 Build a uniform partition by subdividing the domain to the specified depth.
@@ -267,8 +317,8 @@ This function performs greedy refinement:
 3. Flag all boxes that can be reached
 4. Refine flagged boxes and repeat
 
-Returns both the partition and a boolean transition graph indicating which boxes
-can potentially send mass to which other boxes.
+Returns the partition, dynamical transition graph, and topological connectivity graph.
+The topological graph is built incrementally during partitioning.
 
 # Arguments
 - `F`: The dynamical system
@@ -284,7 +334,8 @@ can potentially send mass to which other boxes.
 
 # Returns
 - `partition::UlamPartition`: The adaptive partition
-- `transition_graph::SparseMatrixCSC{Bool}`: Boolean matrix where [i,j]=true means box i can send mass to box j
+- `dynamical_graph::SparseMatrixCSC{Bool}`: Boolean matrix where [i,j]=true means box j can send mass to box i via F
+- `topological_graph::SparseMatrixCSC{Bool}`: Boolean matrix where [i,j]=true means boxes i and j are within noise distance
 
 # Example
 ```julia
@@ -292,18 +343,14 @@ F(x, y) = (0.5*x + 0.25, 0.5*y + 0.25)
 domain = IntervalBox(interval(0.0, 1.0), interval(0.0, 1.0))
 noise = uniform_noise_box(0.01, 2)
 
-# Absorbing boundary conditions (default)
-partition, graph = build_adaptive_partition(F, domain, noise,
+# Get both dynamical and topological graphs
+partition, dyn_graph, topo_graph = build_adaptive_partition(F, domain, noise,
                                             initial_depth=2,
                                             max_diameter=0.05,
                                             verbose=true)
 
-# Periodic boundary conditions
-partition, graph = build_adaptive_partition(F, domain, noise,
-                                            initial_depth=2,
-                                            max_diameter=0.05,
-                                            periodic=true,
-                                            verbose=true)
+# For backward compatibility, can still destructure as (partition, graph)
+partition, graph = build_adaptive_partition(F, domain, noise, ...)  # graph = dyn_graph
 ```
 """
 function build_adaptive_partition(F, domain::IntervalBox{N},
@@ -353,13 +400,22 @@ function build_adaptive_partition(F, domain::IntervalBox{N},
         println("  Initial partition: $(length(boxes)) boxes")
     end
 
+    # Build initial topological connectivity graph (small n, so n² is manageable)
+    if verbose && noise !== nothing
+        println("  Building initial topological connectivity...")
+    end
+    topo_graph = build_initial_topological_connectivity(boxes, noise, domain, periodic)
+    if verbose && noise !== nothing
+        println("  Initial topological graph: $(nnz(topo_graph)) non-zeros")
+    end
+
     # Iterative refinement with flagging
     level = 0
     max_iterations = use_diameter_stopping ? 20 : refinement_levels
 
-    # Track transition graph during refinement
-    I_rows = Int[]  # Source box indices
-    J_cols = Int[]  # Target box indices
+    # Track dynamical transition graph during refinement
+    I_rows = Int[]  # Source box indices (dynamical)
+    J_cols = Int[]  # Target box indices (dynamical)
 
     while level < max_iterations
         n_boxes = length(boxes)
@@ -426,6 +482,10 @@ function build_adaptive_partition(F, domain::IntervalBox{N},
                 println("  Reached target diameter: $current_diameter ≤ $max_diameter")
             end
             boxes = effective_boxes
+            # Rebuild topological graph for final effective boxes
+            if noise !== nothing
+                topo_graph = build_initial_topological_connectivity(boxes, noise, domain, periodic)
+            end
             break
         end
 
@@ -442,6 +502,13 @@ function build_adaptive_partition(F, domain::IntervalBox{N},
             end
         end
         boxes = new_boxes
+
+        # Rebuild topological graph for new partition
+        # This is still efficient because the partition is small (only effective boxes)
+        if noise !== nothing
+            topo_graph = build_initial_topological_connectivity(boxes, noise, domain, periodic)
+        end
+
         level += 1
 
         if verbose && use_diameter_stopping
@@ -493,17 +560,30 @@ function build_adaptive_partition(F, domain::IntervalBox{N},
         end
     end
 
-    # Create sparse boolean matrix
-    transition_graph = sparse(J_cols, I_rows, trues(length(I_rows)), n_final, n_final)
+    # Create sparse boolean matrix for dynamical transitions
+    dynamical_graph = sparse(J_cols, I_rows, trues(length(I_rows)), n_final, n_final)
+
+    # Rebuild topological graph if not already at correct size
+    if noise !== nothing && size(topo_graph, 1) != n_final
+        topo_graph = build_initial_topological_connectivity(boxes, noise, domain, periodic)
+    elseif noise === nothing
+        # No noise: topological graph is identity
+        topo_graph = sparse(1:n_final, 1:n_final, trues(n_final), n_final, n_final)
+    end
 
     if verbose
-        nnz_graph = nnz(transition_graph)
-        sparsity = 100 * (1 - nnz_graph / (n_final^2))
+        nnz_dyn = nnz(dynamical_graph)
+        sparsity_dyn = 100 * (1 - nnz_dyn / (n_final^2))
         println("\nFinal partition:")
         println("  Boxes: $n_final")
-        println("  Transition graph: $nnz_graph non-zeros ($(round(sparsity, digits=1))% sparse)")
+        println("  Dynamical graph: $nnz_dyn non-zeros ($(round(sparsity_dyn, digits=1))% sparse)")
+        if noise !== nothing
+            nnz_topo = nnz(topo_graph)
+            sparsity_topo = 100 * (1 - nnz_topo / (n_final^2))
+            println("  Topological graph: $nnz_topo non-zeros ($(round(sparsity_topo, digits=1))% sparse)")
+        end
         println("  Refinement levels: $level")
     end
 
-    return partition, transition_graph
+    return partition, dynamical_graph, topo_graph
 end

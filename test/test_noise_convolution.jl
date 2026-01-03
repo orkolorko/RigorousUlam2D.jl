@@ -143,14 +143,14 @@ using Test
         noise = uniform_noise_box(0.01, 2)  # Small noise
 
         # Build adaptive partition
-        partition, graph = build_adaptive_partition(F, domain, noise,
+        partition, dyn_graph, topo_graph = build_adaptive_partition(F, domain, noise,
                                                     initial_depth=2,
                                                     max_diameter=0.05)
 
         # Build operators
-        P_det, _ = build_transition_matrix(F, partition, transition_graph=graph,
+        P_det, _ = build_transition_matrix(F, partition, transition_graph=dyn_graph,
                                           max_iterations=8, ε=1e-4)
-        N = build_noise_convolution_operator(noise, partition, transition_graph=graph,
+        N = build_noise_convolution_operator(noise, partition, transition_graph=topo_graph,
                                             ε=1e-5, max_iterations=20)
         P_noisy = N * P_det
 

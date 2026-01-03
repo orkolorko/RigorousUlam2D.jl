@@ -99,8 +99,6 @@ if size(P, 1) <= 500
 
     # Visualization
     println("\nCreating visualization...")
-    x_centers = [mid(box[1]) for box in partition.boxes]
-    y_centers = [mid(box[2]) for box in partition.boxes]
     densities = [μ[i] / box_measure(partition.boxes[i]) for i in 1:partition.n_boxes]
 
     fig = Figure(size=(800, 700))
@@ -110,14 +108,23 @@ if size(P, 1) <= 500
         aspect=1
     )
 
-    sc = scatter!(ax, x_centers, y_centers,
-        color=densities,
-        colormap=:viridis,
-        markersize=12,
-        colorrange=(0, maximum(densities))
-    )
+    # Plot each box as a colored rectangle
+    for (i, box) in enumerate(partition.boxes)
+        x_min, x_max = inf(box[1]), sup(box[1])
+        y_min, y_max = inf(box[2]), sup(box[2])
 
-    Colorbar(fig[1, 2], sc, label="Density ρ(x,y)")
+        # Create rectangle vertices
+        rect = [
+            (x_min, y_min), (x_max, y_min),
+            (x_max, y_max), (x_min, y_max)
+        ]
+
+        poly!(ax, rect, color=densities[i], colormap=:viridis,
+              colorrange=(0, maximum(densities)))
+    end
+
+    Colorbar(fig[1, 2], colormap=:viridis,
+             limits=(0, maximum(densities)), label="Density ρ(x,y)")
     output_file = joinpath(@__DIR__, "01_contracting_map_output.png")
     save(output_file, fig)
     println("Saved visualization to ", output_file)

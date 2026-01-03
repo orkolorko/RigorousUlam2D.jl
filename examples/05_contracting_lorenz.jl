@@ -232,42 +232,48 @@ if size(P, 1) <= 500
     println("="^70)
 
     # Prepare density data
-    x_centers = [mid(box[1]) for box in partition_adaptive.boxes]
-    y_centers = [mid(box[2]) for box in partition_adaptive.boxes]
     densities = [μ[i] / box_measure(partition_adaptive.boxes[i]) for i in 1:partition_adaptive.n_boxes]
 
     # Create figure
     fig = Figure(size=(1200, 500))
 
-    # Plot 1: Partition structure
+    # Plot 1: Partition structure (outline only)
     ax1 = Axis(fig[1, 1],
         xlabel="x", ylabel="y",
         title="Adaptive Partition ($(partition_adaptive.n_boxes) boxes)",
         aspect=1
     )
 
-    # Draw partition boxes
+    # Draw partition boxes as outlines
     for box in partition_adaptive.boxes
         x_coords = [inf(box[1]), sup(box[1]), sup(box[1]), inf(box[1]), inf(box[1])]
         y_coords = [inf(box[2]), inf(box[2]), sup(box[2]), sup(box[2]), inf(box[2])]
         lines!(ax1, x_coords, y_coords, color=:gray, linewidth=0.5)
     end
 
-    # Plot 2: Invariant density
+    # Plot 2: Invariant density (filled rectangles)
     ax2 = Axis(fig[1, 2],
         xlabel="x", ylabel="y",
         title="Invariant Density",
         aspect=1
     )
 
-    sc = scatter!(ax2, x_centers, y_centers,
-        color=densities,
-        colormap=:viridis,
-        markersize=10,
-        colorrange=(0, maximum(densities))
-    )
+    # Plot each box as a colored rectangle
+    for (i, box) in enumerate(partition_adaptive.boxes)
+        x_min, x_max = inf(box[1]), sup(box[1])
+        y_min, y_max = inf(box[2]), sup(box[2])
 
-    Colorbar(fig[1, 3], sc, label="Density ρ(x,y)")
+        rect = [
+            (x_min, y_min), (x_max, y_min),
+            (x_max, y_max), (x_min, y_max)
+        ]
+
+        poly!(ax2, rect, color=densities[i], colormap=:viridis,
+              colorrange=(0, maximum(densities)))
+    end
+
+    Colorbar(fig[1, 3], colormap=:viridis,
+             limits=(0, maximum(densities)), label="Density ρ(x,y)")
 
     # Save figure
     output_file = joinpath(@__DIR__, "05_contracting_lorenz_output.png")

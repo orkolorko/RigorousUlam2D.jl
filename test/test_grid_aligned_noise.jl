@@ -56,7 +56,7 @@ using LinearAlgebra, SparseArrays
         # Grid-aligned noise: width = 0.5 = domain_width/2^1
         noise = uniform_noise_box(0.25, 2)  # ±0.25 → width 0.5
 
-        N = build_grid_aligned_noise_operator(noise, partition)
+        N = build_grid_aligned_noise_operator(noise, partition, periodic=false)
 
         # All boxes should be connected (noise reaches all neighbors)
         @test nnz(N) >= 4  # At least diagonal entries
@@ -64,9 +64,11 @@ using LinearAlgebra, SparseArrays
         # Check matrix is non-negative
         @test all(N.nzval .>= 0)
 
-        # Check column sums approximately 1
+        # Absorbing BC: boundary boxes lose mass
         col_sums = vec(sum(N, dims=1))
-        @test all(0.9 .< col_sums .< 1.1)
+        @test all(col_sums .> 0)  # All positive
+        @test all(col_sums .<= 1.0)  # None exceed 1.0
+        @test minimum(col_sums) < 1.0  # Some boxes lose mass (boundary)
     end
 
     @testset "anisotropic grid-aligned noise" begin

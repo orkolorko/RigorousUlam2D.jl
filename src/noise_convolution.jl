@@ -344,6 +344,14 @@ N = build_noise_convolution_operator(noise, partition, periodic=true, transition
 - Matrix entries are **lower bounds** (verified transitions only). This ensures rigorous
   approximations but may be conservative.
 - Increase `max_iterations` or decrease `ε` for tighter bounds (more computation).
+
+# Future Optimization: Grid-Aligned Noise
+When noise size matches the partition grid (noise_side = domain_side / 2^k), the convolution
+operator can be computed exactly without subdivision:
+- Each box spreads mass uniformly to its topological neighbors
+- No adaptive refinement needed - just follow topological graph edges
+- Compute exact overlap fractions from geometry
+- Would be orders of magnitude faster for grid-aligned noise
 """
 function build_noise_convolution_operator(noise::IntervalBox{N}, partition::UlamPartition{N};
                                          periodic::Bool=false,

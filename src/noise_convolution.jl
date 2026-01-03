@@ -255,9 +255,12 @@ The combined graph ensures correct noise propagation: mass spreads both locally
 (within noise distance) and follows the dynamics (F then adds noise).
 
 # TODO: This could be built incrementally during adaptive partitioning for efficiency:
-# - When a box is bisected, the two children are adjacent (within noise distance)
-# - Add edges between adjacent boxes during subdivision
-# - Much faster than O(n²) distance checks
+# Algorithm:
+# 1. Start with connectivity graph at lowest level (initial partition) - small n, so n² is manageable
+# 2. During forward flagging: remove unflagged domains → smaller partition and graph
+# 3. During bisection: when adding two children, add their edge to the graph
+# 4. Result: topological graph built incrementally without O(n²) distance checks
+# This would eliminate the need for this post-processing function entirely!
 """
 function build_topological_graph(partition::UlamPartition{N}, noise::IntervalBox{N};
                                 periodic::Bool=false,

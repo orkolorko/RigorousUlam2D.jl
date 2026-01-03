@@ -129,8 +129,8 @@ t_det = @elapsed begin
         contracting_lorenz, partition_adaptive,
         transition_graph=graph,
         enclosure_method=zeroth_order_enclosure,
-        max_iterations=10,
-        ε=1e-5
+        max_iterations=8,
+        ε=1e-4
     )
 end
 
@@ -139,8 +139,8 @@ t_noise = @elapsed begin
     N = build_noise_convolution_operator(
         noise, partition_adaptive,
         transition_graph=graph,
-        ε=1e-5,
-        max_iterations=20
+        ε=1e-3,
+        max_iterations=10
     )
 end
 

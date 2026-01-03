@@ -35,6 +35,7 @@ using Test
     include("test_adaptive_refinement.jl")
     include("test_sparse_ulam.jl")
     include("test_noise_convolution.jl")
+    include("test_grid_aligned_noise.jl")
     include("test_domain_restriction.jl")
 
 end

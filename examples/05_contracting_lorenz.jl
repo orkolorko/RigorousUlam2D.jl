@@ -59,12 +59,14 @@ end
 
 # Setup
 domain = IntervalBox(interval(-0.5, 0.5), interval(-0.5, 0.5))
-noise = uniform_noise_box(0.01, 2)
+# Grid-aligned noise: width = domain_width / 2^k (k=6)
+# For domain width 1.0: 1.0/64 = 0.015625
+noise = uniform_noise_box(1.0/64, 2)
 
 println("\nSystem:")
 println("  Contracting Lorenz map (s=2.5, r=6.0, ρ=0.8)")
 println("  Domain: [-0.5, 0.5]²")
-println("  Noise: ±0.01 uniform")
+println("  Noise: ±$(1.0/64) uniform (grid-aligned)")
 println("\nThis map has:")
 println("  - Strong contraction (ρ < 1)")
 println("  - Nonlinearity (power law x^s, x^r)")
@@ -134,15 +136,13 @@ t_det = @elapsed begin
     )
 end
 
-println("\nBuilding noise convolution operator...")
+println("\nBuilding grid-aligned noise operator...")
 t_noise = @elapsed begin
     println("  Topo graph non-zeros: $(nnz(topo_graph)) (vs dynamics: $(nnz(dyn_graph)))")
 
-    N = build_noise_convolution_operator(
+    N = build_grid_aligned_noise_operator(
         noise, partition_adaptive,
-        transition_graph=topo_graph,
-        ε=1e-3,
-        max_iterations=10
+        topological_graph=topo_graph
     )
 end
 
@@ -270,8 +270,9 @@ if size(P, 1) <= 500
     Colorbar(fig[1, 3], sc, label="Density ρ(x,y)")
 
     # Save figure
-    save("examples/05_contracting_lorenz_output.png", fig)
-    println("\nSaved visualization to examples/05_contracting_lorenz_output.png")
+    output_file = joinpath(@__DIR__, "05_contracting_lorenz_output.png")
+    save(output_file, fig)
+    println("\nSaved visualization to ", output_file)
 end
 
 println("\n" * "="^70)

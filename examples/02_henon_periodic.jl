@@ -30,12 +30,14 @@ end
 
 # Setup
 domain = IntervalBox(interval(-1.0, 1.0), interval(-1.0, 1.0))
-noise = uniform_noise_box(0.025, 2)  # Noise: ±0.025
+# Grid-aligned noise: width = domain_width / 2^k (k=6)
+# For domain width 2.0: 2.0/64 = 0.03125
+noise = uniform_noise_box(2.0/64, 2)
 
 println("\nSystem:")
 println("  Hénon map (a=1.4, b=0.3), rescaled to [-1,1]²")
 println("  Domain: [-1,1]²")
-println("  Noise: ±0.025 uniform")
+println("  Noise: ±$(2.0/64) uniform (grid-aligned)")
 println("  Boundary conditions: Periodic (torus)")
 
 # Build adaptive partition with periodic BC
@@ -66,10 +68,10 @@ P_det, U_det = build_transition_matrix(
     ε=1e-4
 )
 
-println("\nBuilding noise convolution operator...")
-N = build_noise_convolution_operator(
+println("\nBuilding grid-aligned noise operator...")
+N = build_grid_aligned_noise_operator(
     noise, partition,
-    transition_graph=topo_graph,
+    topological_graph=topo_graph,
     periodic=true
 )
 

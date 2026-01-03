@@ -26,12 +26,14 @@ F(x, y) = (0.5*x + 0.25, 0.5*y + 0.25)
 
 # Setup domain
 domain = IntervalBox(interval(0.0, 1.0), interval(0.0, 1.0))
-noise = uniform_noise_box(0.01, 2)  # Small additive noise
+# Grid-aligned noise: width = domain_width / 2^k (k=6)
+# For domain width 1.0: 1.0/64 = 0.015625
+noise = uniform_noise_box(1.0/64, 2)
 
 println("\nSystem:")
 println("  F(x,y) = (0.5x + 0.25, 0.5y + 0.25)")
 println("  Domain: [0,1]²")
-println("  Noise: ±0.01 uniform")
+println("  Noise: ±$(1.0/64) uniform (grid-aligned)")
 
 # Build adaptive partition with diameter-based stopping
 println("\nBuilding adaptive partition...")
@@ -62,11 +64,11 @@ P, U = build_transition_matrix(
     ε=1e-4
 )
 
-# Build noise convolution operator
-println("\nBuilding noise convolution operator N...")
-N = build_noise_convolution_operator(
+# Build grid-aligned noise operator
+println("\nBuilding grid-aligned noise operator N...")
+N = build_grid_aligned_noise_operator(
     noise, partition,
-    transition_graph=topo_graph
+    topological_graph=topo_graph
 )
 
 # Compose to get noisy transition matrix
@@ -116,8 +118,9 @@ if size(P, 1) <= 500
     )
 
     Colorbar(fig[1, 2], sc, label="Density ρ(x,y)")
-    save("examples/01_contracting_map_output.png", fig)
-    println("Saved visualization to examples/01_contracting_map_output.png")
+    output_file = joinpath(@__DIR__, "01_contracting_map_output.png")
+    save(output_file, fig)
+    println("Saved visualization to ", output_file)
 else
     println("  Partition too large for dense eigenvalue computation")
     println("  Consider using iterative methods (Arnoldi, etc.)")

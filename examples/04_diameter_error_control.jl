@@ -16,11 +16,13 @@ println("="^70)
 
 F(x, y) = (0.5*x + 0.25, 0.5*y + 0.25)
 domain = IntervalBox(interval(0.0, 1.0), interval(0.0, 1.0))
-noise = uniform_noise_box(0.01, 2)
+# Grid-aligned noise: width = domain_width / 2^k (k=6)
+# For domain width 1.0: 1.0/64 = 0.015625
+noise = uniform_noise_box(1.0/64, 2)
 
 println("\nSystem:")
 println("  F(x,y) = (0.5x + 0.25, 0.5y + 0.25)")
-println("  Noise: ±0.01 uniform")
+println("  Noise: ±$(1.0/64) uniform (grid-aligned)")
 
 # Target different error tolerances
 target_diameters = [0.1, 0.05, 0.02, 0.01]

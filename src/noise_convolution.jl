@@ -14,6 +14,7 @@ using SparseArrays
 export minkowski_sum, noisy_image
 export uniform_noise_box, anisotropic_noise_box
 export build_noise_convolution_operator, build_topological_graph
+export build_grid_aligned_noise_operator
 
 """
     minkowski_sum(A::IntervalBox{N}, B::IntervalBox{N}) where {N}
@@ -448,4 +449,210 @@ function anisotropic_noise_box(noise_levels::Vector{<:Real})
     N = length(noise_levels)
     intervals = [interval(-ε, ε) for ε in noise_levels]
     return IntervalBox(intervals...)
+end
+
+"""
+    build_grid_aligned_noise_operator(noise::IntervalBox{N}, partition::UlamPartition{N};
+                                      periodic::Bool=false,
+                                      topological_graph::Union{SparseMatrixCSC{Bool},Nothing}=nothing) where {N}
+
+Build noise convolution operator for grid-aligned noise (FAST EXACT method).
+
+This function computes the noise operator EXACTLY without subdivision when the noise
+is aligned with the partition grid, i.e., when noise_width = domain_width / 2^k for some k.
+
+For grid-aligned uniform noise, mass spreads uniformly to topological neighbors with
+exact geometric overlap fractions that can be computed directly.
+
+# Grid Alignment Requirement
+
+For each dimension i, the noise must satisfy:
+```
+noise_width[i] = (domain_width[i] / 2^k[i]) for some non-negative integer k[i]
+```
+
+This ensures that noise boundaries align with partition box boundaries, allowing
+exact computation of overlap fractions.
+
+**Supports anisotropic noise**: Each dimension is checked independently, so you can use
+`anisotropic_noise_box([1/32, 1/16])` for rectangular noise on a rectangular domain.
+
+# Arguments
+- `noise`: Noise support box (must be grid-aligned)
+- `partition`: The partition of phase space
+- `periodic`: If true, apply periodic boundary conditions
+- `topological_graph`: Topological connectivity graph from build_adaptive_partition.
+                       If not provided, will compute it (slower).
+
+# Returns
+- `N`: Exact noise convolution operator (n × n sparse matrix)
+
+# Example
+```julia
+# Domain [0,1]² partitioned to depth 5 → boxes of size 1/32
+domain = IntervalBox(interval(0.0, 1.0), interval(0.0, 1.0))
+partition, dyn_graph, topo_graph = build_adaptive_partition(F, domain, nothing,
+                                                            initial_depth=5,
+                                                            refinement_levels=0)
+
+# Grid-aligned noise: 1/32 = domain_width/2^5
+noise = uniform_noise_box(1/64, 2)  # ±1/64 → width 1/32 ✓ grid-aligned
+
+# Fast exact computation (no subdivision!)
+N = build_grid_aligned_noise_operator(noise, partition,
+                                      topological_graph=topo_graph)
+```
+
+# Performance
+Orders of magnitude faster than adaptive refinement approach:
+- No subdivision iterations
+- Exact geometric computation
+- Just follows topological graph edges
+
+# Validation
+The function validates grid alignment and errors if noise is not grid-aligned.
+Use build_noise_convolution_operator for non-aligned noise.
+"""
+function build_grid_aligned_noise_operator(noise::IntervalBox{N}, partition::UlamPartition{N};
+                                          periodic::Bool=false,
+                                          topological_graph::Union{SparseMatrixCSC{Bool},Nothing}=nothing) where {N}
+
+    # Validate grid alignment
+    domain = partition.domain
+    for i in 1:N
+        noise_width = diam(noise[i])
+        domain_width = diam(domain[i])
+
+        # Check if noise_width = domain_width / 2^k for some k
+        ratio = domain_width / noise_width
+        k = round(log2(ratio))
+        expected_width = domain_width / 2^k
+
+        if abs(noise_width - expected_width) > 1e-10
+            error("Noise is not grid-aligned in dimension $i: " *
+                  "noise_width=$noise_width, expected=$(domain_width / 2^k) for k=$k")
+        end
+    end
+
+    # Build topological graph if not provided
+    if topological_graph === nothing
+        topological_graph = build_topological_graph(partition, noise, periodic=periodic)
+    end
+
+    n = partition.n_boxes
+    I_indices = Int[]
+    J_indices = Int[]
+    values = Float64[]
+
+    # For each source box, compute exact overlap with neighbors
+    rows = rowvals(topological_graph)
+    for j in 1:n
+        source_box = partition.boxes[j]
+
+        # Compute noisy box: source ⊕ noise
+        noisy_box = minkowski_sum(source_box, noise)
+
+        if periodic
+            # For grid-aligned periodic noise, handle wraparound explicitly
+            # Check if noisy_box wraps around in any dimension
+            wraps_around = false
+            for i in 1:N
+                inf_wrapped = wrap_to_torus(inf(noisy_box[i]), inf(domain[i]), sup(domain[i]))
+                sup_wrapped = wrap_to_torus(sup(noisy_box[i]), inf(domain[i]), sup(domain[i]))
+                if inf_wrapped > sup_wrapped
+                    wraps_around = true
+                    break
+                end
+            end
+
+            if wraps_around
+                # Wraparound case: enumerate all wrapped components explicitly
+                # Build all wrapped components by splitting in each dimension
+                components = [noisy_box]
+                for dim in 1:N
+                    period = diam(domain[dim])
+                    noisy_interval = noisy_box[dim]
+
+                    if diam(noisy_interval) < period
+                        inf_wrapped = wrap_to_torus(inf(noisy_interval), inf(domain[dim]), sup(domain[dim]))
+                        sup_wrapped = wrap_to_torus(sup(noisy_interval), inf(domain[dim]), sup(domain[dim]))
+
+                        if inf_wrapped > sup_wrapped
+                            # Splits into two pieces in this dimension
+                            new_components = IntervalBox{N}[]
+                            for comp in components
+                                intervals1 = [comp[k] for k in 1:N]
+                                intervals2 = [comp[k] for k in 1:N]
+                                intervals1[dim] = interval(inf(domain[dim]), sup_wrapped)
+                                intervals2[dim] = interval(inf_wrapped, sup(domain[dim]))
+                                push!(new_components, IntervalBox(intervals1...))
+                                push!(new_components, IntervalBox(intervals2...))
+                            end
+                            components = new_components
+                        end
+                    end
+                end
+
+                # Process each component separately
+                noisy_volume = box_measure(noisy_box)
+                for comp in components
+                    for idx in nzrange(topological_graph, j)
+                        i = rows[idx]
+                        target_box = partition.boxes[i]
+
+                        overlap_box = intersect_boxes(comp, target_box)
+                        if !is_empty_box(overlap_box)
+                            overlap_volume = box_measure(overlap_box)
+                            fraction = overlap_volume / noisy_volume
+
+                            if fraction > 0
+                                # Find if we already have this edge
+                                found = false
+                                for k in 1:length(I_indices)
+                                    if I_indices[k] == i && J_indices[k] == j
+                                        values[k] += fraction
+                                        found = true
+                                        break
+                                    end
+                                end
+                                if !found
+                                    push!(I_indices, i)
+                                    push!(J_indices, j)
+                                    push!(values, fraction)
+                                end
+                            end
+                        end
+                    end
+                end
+                continue  # Skip the non-periodic case
+            else
+                # No wraparound: just apply periodic BC normally
+                noisy_box = apply_periodic_bc(noisy_box, domain)
+            end
+        end
+
+        # Non-periodic or non-wrapping case
+        noisy_volume = box_measure(noisy_box)
+        for idx in nzrange(topological_graph, j)
+            i = rows[idx]
+            target_box = partition.boxes[i]
+
+            # Compute exact overlap: intersection volume / noisy volume
+            overlap_box = intersect_boxes(noisy_box, target_box)
+
+            if !is_empty_box(overlap_box)
+                overlap_volume = box_measure(overlap_box)
+                fraction = overlap_volume / noisy_volume
+
+                if fraction > 0
+                    push!(I_indices, i)
+                    push!(J_indices, j)
+                    push!(values, fraction)
+                end
+            end
+        end
+    end
+
+    N_op = sparse(I_indices, J_indices, values, n, n)
+    return N_op
 end

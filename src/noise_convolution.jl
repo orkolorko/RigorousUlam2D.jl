@@ -13,7 +13,7 @@ using SparseArrays
 
 export minkowski_sum, noisy_image
 export uniform_noise_box, anisotropic_noise_box
-export build_noise_convolution_operator
+export build_noise_convolution_operator, build_topological_graph
 
 """
     minkowski_sum(A::IntervalBox{N}, B::IntervalBox{N}) where {N}
@@ -212,6 +212,84 @@ function compute_noise_overlap(source_box::IntervalBox{N}, target_box::IntervalB
 
     # Return lower bound (verified transitions only)
     return total_lower
+end
+
+"""
+    build_topological_graph(partition::UlamPartition{N}, noise::IntervalBox{N};
+                           periodic::Bool=false,
+                           dynamical_graph::Union{SparseMatrixCSC{Bool},Nothing}=nothing) where {N}
+
+Build a sparse boolean matrix indicating which partition boxes can overlap after
+adding noise. This is a **topological** connectivity graph based on distance.
+
+For noise convolution, box i can receive mass from box j if their Minkowski sum
+overlaps: `box_j ⊕ noise` intersects `box_i`.
+
+If a dynamical_graph is provided, the result will be the union of topological and
+dynamical connections. This is because noise can spread mass both locally (topology)
+and following the dynamics.
+
+# Arguments
+- `partition`: The partition of phase space
+- `noise`: The noise support box
+- `periodic`: If true, account for periodic boundary conditions
+- `dynamical_graph`: Optional dynamical transition graph from build_adaptive_partition.
+                     If provided, result includes both topological and dynamical connections.
+
+# Returns
+Sparse boolean matrix `graph` where `graph[i,j] = true` if boxes i and j are
+connected (either topologically within noise distance, or dynamically via F, or both).
+
+# Example
+```julia
+noise = uniform_noise_box(0.01, 2)
+partition, dyn_graph = build_adaptive_partition(F, domain, noise, max_diameter=0.05)
+
+# Build combined graph: topological + dynamical
+noise_graph = build_topological_graph(partition, noise, dynamical_graph=dyn_graph)
+N = build_noise_convolution_operator(noise, partition, transition_graph=noise_graph)
+```
+
+# Note
+The combined graph ensures correct noise propagation: mass spreads both locally
+(within noise distance) and follows the dynamics (F then adds noise).
+"""
+function build_topological_graph(partition::UlamPartition{N}, noise::IntervalBox{N};
+                                periodic::Bool=false,
+                                dynamical_graph::Union{SparseMatrixCSC{Bool},Nothing}=nothing) where {N}
+    n = partition.n_boxes
+    I_indices = Int[]
+    J_indices = Int[]
+
+    for j in 1:n
+        source_box = partition.boxes[j]
+
+        # Compute the extent of source + noise
+        noisy_source = minkowski_sum(source_box, noise)
+        if periodic
+            noisy_source = apply_periodic_bc(noisy_source, partition.domain)
+        end
+
+        # Find all boxes that could overlap with noisy source
+        for i in 1:n
+            target_box = partition.boxes[i]
+
+            # Quick check: could the boxes possibly overlap?
+            if !isdisjoint_box(noisy_source, target_box)
+                push!(I_indices, i)
+                push!(J_indices, j)
+            end
+        end
+    end
+
+    topo_graph = sparse(I_indices, J_indices, true, n, n)
+
+    # If dynamical graph provided, take union (logical OR)
+    if dynamical_graph !== nothing
+        return topo_graph .| dynamical_graph
+    else
+        return topo_graph
+    end
 end
 
 """

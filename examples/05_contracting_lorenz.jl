@@ -136,9 +136,14 @@ end
 
 println("\nBuilding noise convolution operator...")
 t_noise = @elapsed begin
+    # Build topological graph for noise (based on distance, not dynamics)
+    noise_graph = build_topological_graph(partition_adaptive, noise,
+                                         dynamical_graph=graph)
+    println("  Noise graph non-zeros: $(nnz(noise_graph)) (vs dynamics: $(nnz(graph)))")
+
     N = build_noise_convolution_operator(
         noise, partition_adaptive,
-        transition_graph=graph,
+        transition_graph=noise_graph,
         ε=1e-3,
         max_iterations=10
     )

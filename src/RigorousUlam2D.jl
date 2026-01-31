@@ -14,6 +14,7 @@ include("adaptive_refinement.jl")
 include("sparse_ulam.jl")
 include("noise_convolution.jl")
 include("boundary_conditions.jl")
+include("spectral_analysis.jl")
 
 # Re-export from submodules
 # Partition utilities
@@ -38,6 +39,12 @@ export build_noise_convolution_operator
 # Boundary conditions
 export apply_periodic_bc, wrap_to_torus
 export noisy_image_periodic
+
+# Spectral analysis (Galatolo-Nisoli / ZZ paper)
+export operator_norm_on_V, operator_norm_on_V_power, find_contraction_power
+export rigorous_norm_on_V, rigorous_norm_on_V_power, higham_gamma
+export compute_stationary_density, spectral_gap
+export noise_variation, ulam_approximation_error, rigorous_error_bound
 
 """
     zeroth_order_enclosure(F, box::IntervalBox)

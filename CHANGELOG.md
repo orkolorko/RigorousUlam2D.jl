@@ -6,6 +6,54 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+#### Spectral Analysis Module with Rigorous Error Bounds (2026-01-31)
+
+**Operator Norm on Zero-Average Space (Galatolo-Monge-Nisoli-Poloni)**
+- `operator_norm_on_V(P)`: Compute ||P|_V||₁ where V = {f : ∫f dλ = 0}
+- `rigorous_norm_on_V(P)`: Rigorous upper bound using Higham's a priori error analysis
+- `operator_norm_on_V_power(P, k)` / `rigorous_norm_on_V_power(P, k)`: Norms of P^k
+- `find_contraction_power(P; target_norm=0.5, rigorous=true)`: Find N such that ||P^N|_V|| < target
+- Uses `higham_gamma(n)` = nu/(1-nu) for floating-point error bounds
+
+**Rigorous Error Bounds for Stationary Density (ZZ Paper)**
+- `rigorous_error_bound(P_noisy, partition, noise)`: Full workflow implementing Theorem 4.2
+- Computes: ||f_ξ - f_{δ,ξ}||_{L¹} ≤ (3δ · var(ρ)) / (ξ · (1-α)) · Σ C_i
+- `noise_variation(noise)`: var(ρ) = 4/ξ for 2D uniform noise
+- `ulam_approximation_error(partition)`: Discretization error δ
+- Mixing condition verification: α + (3δ/ξ)var(ρ)ΣC_i < 1
+
+**Additional Functions**
+- `compute_stationary_density(P)`: Left eigenvector via power iteration
+- `spectral_gap(P)`: Estimate 1 - |λ₂| via deflated power iteration or eigendecomposition
+
+**Algorithm (from Galatolo-Nisoli Section 4.1)**
+```julia
+# Find contraction power N:
+for j = 1, 2, 3, ...
+    norm_j = rigorous_norm_on_V(P^j)  # Uses Higham bounds
+    if norm_j < 0.5
+        return N=j, α=norm_j
+    end
+end
+```
+
+**Higham's A Priori Bound**
+```julia
+# For floating-point matrix operations:
+γ_n = n * u / (1 - n * u)  # u = eps(Float64)/2
+# Computed norm satisfies:
+# fl(||P|_V||) ≤ ||P|_V|| * (1 + γ_{2n-1})
+```
+
+**Files Added**
+- `src/spectral_analysis.jl`: Main implementation
+- `test/test_spectral_analysis.jl`: Comprehensive test suite
+
+**References**
+- Galatolo-Monge-Nisoli-Poloni (2014): Norm estimation on zero-average space
+- Higham (2002): "Accuracy and Stability of Numerical Algorithms"
+- ZZ Paper (Pacifico-Liberalquino-Nisoli): Rigorous stationary density bounds
+
 #### Grid-Aligned Noise Operator with Exact Periodic BC (2026-01-03)
 
 **New `build_grid_aligned_noise_operator` Function**

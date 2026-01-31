@@ -70,6 +70,24 @@ Periodic boundary conditions for systems on the torus.
 
 See the **Noise and Boundary Conditions** page in the User Guide for detailed documentation.
 
+## Spectral Analysis
+
+Rigorous operator norm estimation on zero-average space and error bounds for stationary density approximation. Implements results from Galatolo-Monge-Nisoli-Poloni (2014) and the ZZ paper (Pacifico-Liberalquino-Nisoli).
+
+```@docs
+operator_norm_on_V
+rigorous_norm_on_V
+operator_norm_on_V_power
+rigorous_norm_on_V_power
+find_contraction_power
+compute_stationary_density
+spectral_gap
+noise_variation
+ulam_approximation_error
+rigorous_error_bound
+higham_gamma
+```
+
 ## Index
 
 ```@index

@@ -73,7 +73,7 @@ function rel_size(F, Q_source::IntervalBox{N}, Q_target::IntervalBox{N};
     # PriorityQueue is a min-heap, so we use negative measures to get max-heap behavior
     # (larger boxes have more negative priorities, so they're dequeued first)
     queue = PriorityQueue{IntervalBox{N}, Float64}()
-    enqueue!(queue, Q_source, -box_measure(Q_source))
+    push!(queue, Q_source => -box_measure(Q_source))
 
     iterations = 0
 
@@ -81,7 +81,7 @@ function rel_size(F, Q_source::IntervalBox{N}, Q_target::IntervalBox{N};
         iterations += 1
 
         # Get the largest box
-        box = dequeue!(queue)
+        box = popfirst!(queue).first
         box_vol = box_measure(box)
 
         # Compute rigorous enclosure of F(box)
@@ -116,13 +116,13 @@ function rel_size(F, Q_source::IntervalBox{N}, Q_target::IntervalBox{N};
 
         # Bisect the box and add sub-boxes to queue
         left, right = bisect_box(box)
-        enqueue!(queue, left, -box_measure(left))
-        enqueue!(queue, right, -box_measure(right))
+        push!(queue, left => -box_measure(left))
+        push!(queue, right => -box_measure(right))
     end
 
     # Handle remaining boxes in queue (if max_iterations reached)
     while !isempty(queue)
-        box = dequeue!(queue)
+        box = popfirst!(queue).first
         push!(uncertain_boxes, box)
     end
 

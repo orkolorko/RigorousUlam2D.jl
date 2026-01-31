@@ -142,22 +142,78 @@ function build_transition_matrix(F, partition::UlamPartition{N},
     # Select appropriate rel_size function based on boundary conditions
     compute_rel_size = if periodic
         # Deterministic with periodic BC - wrap images to torus
+        # Uses subdivision for accurate overlap computation
         (F, Q_source, Q_target) -> begin
-            # Compute image
-            image = enclosure_method(F, Q_source)
-            image_box = image isa Tuple ? IntervalBox(image...) : image
-            # Wrap to torus
-            wrapped = apply_periodic_bc(image_box, partition.domain)
-
-            # Check containment (return relative measures)
-            if issubset_box(wrapped, Q_target)
-                return (1.0, 1.0, IntervalBox{N}[])  # All of source maps to target
-            elseif isdisjoint_box(wrapped, Q_target)
+            source_measure = box_measure(Q_source)
+            if source_measure == 0
                 return (0.0, 0.0, IntervalBox{N}[])
-            else
-                # Uncertain - return conservative upper bound
-                return (0.0, 1.0, [Q_source])
             end
+
+            # Initialize accumulators
+            lower_measure = 0.0
+
+            # Process boxes via simple subdivision
+            to_process = [Q_source]
+            max_depth = max_iterations
+
+            for _ in 1:max_depth
+                if isempty(to_process)
+                    break
+                end
+
+                next_round = IntervalBox{N}[]
+
+                for box in to_process
+                    box_vol = box_measure(box)
+
+                    # Compute image and wrap
+                    img = enclosure_method(F, box)
+                    image_box = img isa Tuple ? IntervalBox(img...) : img
+                    wrapped = apply_periodic_bc(image_box, partition.domain)
+
+                    # Check containment
+                    if issubset_box(wrapped, Q_target)
+                        lower_measure += box_vol
+                    elseif isdisjoint_box(wrapped, Q_target)
+                        # Discard - no contribution
+                    else
+                        # Partial overlap - check if we can compute geometric overlap
+                        is_full_domain = all(
+                            abs(diam(wrapped[i]) - diam(partition.domain[i])) < 1e-10
+                            for i in 1:N
+                        )
+
+                        if is_full_domain && box_width(box) > ε
+                            # Full domain fallback - need to subdivide
+                            left, right = bisect_box(box)
+                            push!(next_round, left)
+                            push!(next_round, right)
+                        elseif is_full_domain
+                            # Box too small but still full domain - use geometric estimate
+                            # Mass distributes over entire domain proportionally
+                            overlap_fraction = box_measure(Q_target) / box_measure(partition.domain)
+                            lower_measure += box_vol * overlap_fraction
+                        else
+                            # Wrapped box is accurate, compute geometric overlap
+                            intersection = intersect_boxes(wrapped, Q_target)
+                            if !is_empty_box(intersection)
+                                overlap_fraction = box_measure(intersection) / box_measure(wrapped)
+                                lower_measure += box_vol * overlap_fraction
+                            end
+                        end
+                    end
+                end
+
+                to_process = next_round
+            end
+
+            # Any remaining boxes are uncertain
+            uncertain_measure = sum(box_measure(box) for box in to_process; init=0.0)
+
+            lower_rel = lower_measure / source_measure
+            upper_rel = (lower_measure + uncertain_measure) / source_measure
+
+            return (lower_rel, upper_rel, to_process)
         end
     else
         # Absorbing boundary conditions (default)

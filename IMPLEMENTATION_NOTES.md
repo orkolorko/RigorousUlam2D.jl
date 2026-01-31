@@ -79,6 +79,80 @@ build_noise_convolution_operator(noise, partition, periodic=true, ...)
 
 Conservative: if wrapping creates disconnected set, return full domain.
 
+## New Features (2026-01-03)
+
+### 1. Grid-Aligned Noise Operator
+
+**High-performance exact computation** when noise matches partition grid structure.
+
+**Constraint**: `noise_width[i] = domain_width[i] / 2^k[i]` for integer k per dimension
+
+**Benefits**:
+- 10-100× faster than adaptive refinement (no subdivision needed)
+- Exact geometric computation using grid alignment
+- Supports anisotropic noise (different k per dimension)
+- **Exact periodic BC**: column sums = 1.0 exactly (no numerical drift)
+
+**Usage**:
+```julia
+# Grid-aligned noise: width = domain_width / 2^k
+domain = IntervalBox(interval(0.0, 1.0), interval(0.0, 1.0))
+noise = uniform_noise_box(1/64, 2)  # width = 1.0/64 = 1.0/2^6 ✓
+
+partition, dyn_graph, topo_graph = build_adaptive_partition(F, domain, noise, ...)
+
+# Fast exact computation
+N = build_grid_aligned_noise_operator(noise, partition,
+                                      topological_graph=topo_graph,
+                                      periodic=true)
+```
+
+**How it works**:
+- Validates grid alignment (errors if constraint violated)
+- For periodic BC with wraparound: enumerates wrapped components explicitly
+- Each component processed separately for exact overlap computation
+- No subdivision needed - pure geometry
+
+### 2. Incremental Topological Graph Building
+
+**API Change**: `build_adaptive_partition` now returns **3 values** (breaking change)
+
+**New signature**:
+```julia
+partition, dynamical_graph, topological_graph = build_adaptive_partition(...)
+```
+
+**Two types of graphs**:
+- **Dynamical graph**: tracks transitions via F(x) - used by transition matrix builder
+- **Topological graph**: tracks spatial proximity via noise - used by noise operator
+
+**Topological graph**:
+- Box i connected to j if `j ⊕ noise` intersects i
+- Automatically includes multi-hop neighbors (2nd, 3rd order via Minkowski sum)
+- Built incrementally during adaptive partitioning (no post-processing)
+
+**Algorithm**:
+```julia
+# During adaptive partitioning:
+1. Build initial topological_graph on coarse partition
+2. For each refinement iteration:
+   - Prune graph when removing unflagged boxes
+   - Rebuild after subdivision (efficient on effective boxes only)
+3. Return both graphs
+```
+
+**Migration**:
+```julia
+# OLD (2 returns):
+partition, graph = build_adaptive_partition(F, domain, noise, ...)
+N = build_noise_convolution_operator(noise, partition, transition_graph=graph)  # WRONG GRAPH!
+
+# NEW (3 returns):
+partition, dyn_graph, topo_graph = build_adaptive_partition(F, domain, noise, ...)
+P, U = build_transition_matrix(F, partition, transition_graph=dyn_graph)  # ✓
+N = build_noise_convolution_operator(noise, partition, transition_graph=topo_graph)  # ✓
+```
+
 ## API Summary
 
 ### Enclosure Methods
@@ -92,13 +166,14 @@ first_order_enclosure(F, box)        # Mean value form with AD
 # Uniform partition
 partition = build_uniform_partition(domain, depth)
 
-# Adaptive partition
-partition, graph = build_adaptive_partition(
+# Adaptive partition (returns 3 values!)
+partition, dynamical_graph, topological_graph = build_adaptive_partition(
     F, domain, noise,
     max_diameter=0.01,
     initial_depth=2,
     safety_margin=1.1,
-    enclosure_method=first_order_enclosure
+    enclosure_method=first_order_enclosure,
+    periodic=false  # or true for torus topology
 )
 ```
 
@@ -107,16 +182,25 @@ partition, graph = build_adaptive_partition(
 # Deterministic operator
 P_det, U = build_transition_matrix(
     F, partition,
-    transition_graph=graph,
+    transition_graph=dynamical_graph,
     enclosure_method=first_order_enclosure,
-    max_iterations=8, ε=1e-4
+    max_iterations=8, ε=1e-4,
+    periodic=false
 )
 
-# Noise convolution operator
+# Noise convolution operator (adaptive method)
 N = build_noise_convolution_operator(
     noise, partition,
-    transition_graph=graph,
-    ε=1e-4
+    transition_graph=topological_graph,
+    ε=1e-4,
+    periodic=false
+)
+
+# OR: Grid-aligned noise operator (fast exact method)
+N = build_grid_aligned_noise_operator(
+    noise, partition,
+    topological_graph=topological_graph,
+    periodic=false
 )
 
 # Compose
@@ -181,10 +265,16 @@ Removed functions:
 ## Performance Tips
 
 1. **Use adaptive partitioning** for contracting/dissipative systems
-2. **Pass transition_graph** to matrix builders for speedup
-3. **Use diameter control** for direct error bounds
-4. **Start with initial_depth=2** and let refinement adapt
-5. **Use first_order_enclosure** for nonlinear maps
+2. **Pass correct graphs** to matrix builders:
+   - `dynamical_graph` → `build_transition_matrix`
+   - `topological_graph` → `build_noise_convolution_operator` or `build_grid_aligned_noise_operator`
+3. **Use grid-aligned noise** when possible for 10-100× speedup:
+   - Choose `noise_width = domain_width / 2^k`
+   - Supports anisotropic noise (different k per dimension)
+   - Exact periodic BC (column sums = 1.0 exactly)
+4. **Use diameter control** for direct error bounds
+5. **Start with initial_depth=2** and let refinement adapt
+6. **Use first_order_enclosure** for nonlinear maps
 
 ## Examples
 

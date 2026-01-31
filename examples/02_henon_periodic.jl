@@ -13,6 +13,7 @@ Pkg.instantiate()  # Install dependencies if needed
 using RigorousUlam2D
 using IntervalArithmetic, IntervalBoxes
 using LinearAlgebra, SparseArrays
+using Arpack
 using Printf
 
 println("="^70)
@@ -90,23 +91,27 @@ stats = estimate_sparsity(P)
 # Spectral analysis
 println("\nSpectral analysis...")
 if size(P, 1) <= 500
+    # Use dense eigendecomposition for small matrices
     λ = eigvals(Matrix(P))
     λ_sorted = sort(abs.(λ), rev=true)
-
-    println("  Leading eigenvalues:")
-    for i in 1:min(5, length(λ_sorted))
-        @printf("    λ_%d = %.6f\n", i, λ_sorted[i])
-    end
-
-    if length(λ_sorted) >= 2
-        gap = 1.0 - λ_sorted[2]
-        rate = -log(λ_sorted[2])
-        @printf("\n  Spectral gap: %.6f\n", gap)
-        @printf("  Mixing rate: %.6f\n", rate)
-        @printf("  Mixing time: ~%.1f iterations\n", 1/rate)
-    end
 else
-    println("  Partition too large for dense eigenvalue computation")
+    # Use Arpack for large matrices (compute leading eigenvalues)
+    println("  Matrix size $(size(P, 1)) - using sparse Arnoldi method...")
+    λ_vals, _ = eigs(P, nev=min(10, size(P,1)-2), which=:LM)
+    λ_sorted = sort(abs.(λ_vals), rev=true)
+end
+
+println("  Leading eigenvalues:")
+for i in 1:min(5, length(λ_sorted))
+    @printf("    λ_%d = %.6f\n", i, λ_sorted[i])
+end
+
+if length(λ_sorted) >= 2
+    gap = 1.0 - λ_sorted[2]
+    rate = -log(λ_sorted[2])
+    @printf("\n  Spectral gap: %.6f\n", gap)
+    @printf("  Mixing rate: %.6f\n", rate)
+    @printf("  Mixing time: ~%.1f iterations\n", 1/rate)
 end
 
 println("\n" * "="^70)

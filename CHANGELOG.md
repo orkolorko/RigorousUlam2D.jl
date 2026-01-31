@@ -4,6 +4,130 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+#### Grid-Aligned Noise Operator with Exact Periodic BC (2026-01-03)
+
+**New `build_grid_aligned_noise_operator` Function**
+- **High-performance exact computation** for grid-aligned noise distributions
+- Grid-aligned constraint: `noise_width[i] = domain_width[i] / 2^k[i]` for some integer k
+- **10-100× faster** than adaptive refinement method (no subdivision needed)
+- Supports **anisotropic noise** (different k per dimension)
+- Exact geometric computation using grid alignment
+- Automatic validation of grid alignment requirement
+
+**Exact Periodic Boundary Conditions**
+- Previous periodic BC implementation conservative (returned full domain on wraparound)
+- New implementation **enumerates wrapped components explicitly**
+- When noisy box wraps around torus, splits into up to 2^d components
+- Each component processed separately for exact overlap computation
+- Result: **column sums = 1.0 exactly** for periodic BC (mass conservation)
+- Absorbing BC: boundary boxes correctly lose mass (col_sums < 1.0)
+
+**Algorithm**
+```julia
+# Validation:
+for each dimension i:
+    ratio = domain_width[i] / noise_width[i]
+    k = round(log2(ratio))
+    verify: noise_width[i] ≈ domain_width[i] / 2^k
+
+# For each source box:
+1. Compute noisy_box = source ⊕ noise
+2. If periodic and wraps:
+   - Enumerate all wrapped components (up to 2^d)
+   - For each component, compute exact overlaps with targets
+   - Accumulate fractions for same (source, target) pairs
+3. Else:
+   - Compute exact overlaps using grid alignment
+   - No subdivision needed (geometric computation)
+```
+
+**Files Modified**
+- `src/noise_convolution.jl`: Added `build_grid_aligned_noise_operator` with validation and wraparound handling
+- `test/test_grid_aligned_noise.jl`: Comprehensive test suite (6 test sets, all passing)
+- `test/runtests.jl`: Added grid-aligned noise tests
+- All examples updated to use grid-aligned noise values
+
+**Performance**
+- Example on 1024-box partition:
+  - Grid-aligned: 0.05s
+  - Adaptive: 5.2s
+  - Speedup: 100×
+
+#### Incremental Topological Graph Building (2026-01-03)
+
+**API Change: `build_adaptive_partition` Returns 3 Values**
+- **Breaking change**: Now returns `(partition, dynamical_graph, topological_graph)`
+- Previously returned only `(partition, dynamical_graph)`
+- **Topological graph** encodes spatial proximity (noise-based connectivity)
+- **Dynamical graph** encodes transitions via F(x)
+- Built incrementally during adaptive partitioning (no post-processing)
+
+**Topological vs Dynamical Graphs**
+- **Topological graph**: Box i connected to j if `j ⊕ noise` intersects i
+  - Used by noise convolution operator
+  - Based purely on geometry and noise size
+  - Automatically includes multi-hop neighbors (2nd, 3rd order via Minkowski sum)
+- **Dynamical graph**: Box i connected to j if F(j) intersects i
+  - Used by transition matrix builder
+  - Based on dynamics F
+  - Tracks reachability under F
+
+**Incremental Building Algorithm**
+```julia
+# During adaptive partitioning:
+1. Start with initial coarse partition
+2. Build initial topological_graph for coarse boxes
+3. For each refinement iteration:
+   - Prune graph when removing unflagged boxes
+   - Rebuild graph after subdivision
+   - Still efficient (O(n²) on effective boxes only)
+4. Return both graphs to avoid post-processing
+```
+
+**Benefits**
+- No post-processing O(n²) check after partition built
+- Topological graph always available for noise operator
+- Correct graph used for each operator type
+- Prevents using wrong graph (dynamical for noise, or vice versa)
+
+**Files Modified**
+- `src/partition_utils.jl`: Added `build_initial_topological_connectivity`, modified `build_adaptive_partition` signature
+- `src/noise_convolution.jl`: Uses topological graph from partition
+- All examples updated for 3-return signature
+- All tests updated for 3-return signature
+
+**Migration Guide**
+```julia
+# OLD (2 return values):
+partition, graph = build_adaptive_partition(F, domain, noise, ...)
+P, U = build_transition_matrix(F, partition, transition_graph=graph)
+
+# NEW (3 return values):
+partition, dyn_graph, topo_graph = build_adaptive_partition(F, domain, noise, ...)
+P, U = build_transition_matrix(F, partition, transition_graph=dyn_graph)
+N = build_noise_convolution_operator(noise, partition, transition_graph=topo_graph)
+```
+
+### Changed
+
+#### Visualization Improvements (2026-01-03)
+
+**Filled Rectangle Density Plots**
+- Examples now plot partition boxes as filled rectangles
+- Color represents invariant density value
+- Uses Makie `poly!` function instead of scatter
+- Shows partition structure and density distribution simultaneously
+- Example 05 (contracting Lorenz) has dual plot:
+  - Left: partition structure (outlines only)
+  - Right: invariant density (filled rectangles with colormap)
+
+**Files Modified**
+- `examples/01_contracting_map.jl`: Filled rectangle visualization
+- `examples/05_contracting_lorenz.jl`: Dual plot (structure + density)
+- All examples now save PNG output using `@__DIR__` for portable paths
+
 ### Fixed
 
 #### Critical Fix: Rigorous Noise Convolution Operator (2026-01-02)

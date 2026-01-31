@@ -16,6 +16,7 @@ Pkg.instantiate()  # Install dependencies if needed
 using RigorousUlam2D
 using IntervalArithmetic, IntervalBoxes
 using LinearAlgebra, SparseArrays
+using Arpack
 using Printf
 using CairoMakie
 
@@ -25,7 +26,7 @@ println("="^70)
 
 # Contracting Lorenz map
 # This is a Poincaré section of the Lorenz attractor with strong contraction
-function contracting_lorenz(x, y; s=2.5, r=6.0, ρ=0.7, c0=-0.25, c1=0.25)
+function contracting_lorenz(x, y; s=2.5, r=6.0, ρ=1.0, c0=-0.25, c1=0.25)
     ax = abs(x)
     
     # For interval arguments, check which branch we're on
@@ -175,6 +176,7 @@ col_sums = normalize_columns!(P)
         minimum(col_sums), maximum(col_sums))
 
 if size(P, 1) <= 500
+    # Use dense eigendecomposition for small matrices
     println("\nComputing eigenvalues...")
     λ = eigvals(Matrix(P))
     λ_sorted = sort(abs.(λ), rev=true)
@@ -197,18 +199,41 @@ if size(P, 1) <= 500
     idx = argmax(abs.(λ))
     μ = abs.(real.(eigvecs(Matrix(P))[:, idx]))
     μ ./= sum(μ)
-
-    active_boxes = count(μ .> 1e-4)
-    @printf("\nInvariant measure:\n")
-    @printf("  Active boxes (weight > 1e-4): %d / %d (%.1f%%)\n",
-            active_boxes, partition_adaptive.n_boxes,
-            100*active_boxes/partition_adaptive.n_boxes)
-    @printf("  Max weight: %.6f\n", maximum(μ))
-    @printf("  Min positive weight: %.2e\n", minimum(μ[μ .> 0]))
 else
-    println("\nPartition too large for dense eigenvalue computation")
-    println("Consider using iterative methods (Arnoldi, ARPACK, etc.)")
+    # Use Arpack for large matrices
+    println("\nMatrix size $(size(P, 1)) - using sparse Arnoldi method...")
+
+    # Compute leading eigenvalues
+    λ_vals, _ = eigs(P, nev=min(10, size(P,1)-2), which=:LM)
+    λ_sorted = sort(abs.(λ_vals), rev=true)
+
+    println("\nLeading eigenvalues:")
+    for i in 1:length(λ_sorted)
+        @printf("  λ_%d = %.8f\n", i, λ_sorted[i])
+    end
+
+    if length(λ_sorted) >= 2
+        gap = 1.0 - λ_sorted[2]
+        rate = -log(λ_sorted[2])
+        @printf("\nSpectral properties:\n")
+        @printf("  Spectral gap: %.6f\n", gap)
+        @printf("  Mixing rate: %.6f\n", rate)
+        @printf("  Mixing time: ~%.1f iterations\n", 1/rate)
+    end
+
+    # Invariant measure (compute leading eigenvector)
+    λ_lead, v_lead = eigs(P', nev=1, which=:LM)
+    μ = abs.(real.(v_lead[:, 1]))
+    μ ./= sum(μ)
 end
+
+active_boxes = count(μ .> 1e-4)
+@printf("\nInvariant measure:\n")
+@printf("  Active boxes (weight > 1e-4): %d / %d (%.1f%%)\n",
+        active_boxes, partition_adaptive.n_boxes,
+        100*active_boxes/partition_adaptive.n_boxes)
+@printf("  Max weight: %.6f\n", maximum(μ))
+@printf("  Min positive weight: %.2e\n", minimum(μ[μ .> 0]))
 
 # Summary
 println("\n" * "="^70)
@@ -226,60 +251,58 @@ println("  contracting maps. Without it, this computation would take")
 println("  $(round(estimated_time_without_graph/60, digits=1)) minutes instead of $(round(t_matrix, digits=1)) seconds!")
 
 #  Visualization
-if size(P, 1) <= 500
-    println("\n" * "="^70)
-    println("Creating Visualizations")
-    println("="^70)
+println("\n" * "="^70)
+println("Creating Visualizations")
+println("="^70)
 
-    # Prepare density data
-    densities = [μ[i] / box_measure(partition_adaptive.boxes[i]) for i in 1:partition_adaptive.n_boxes]
+# Prepare density data
+densities = [μ[i] / box_measure(partition_adaptive.boxes[i]) for i in 1:partition_adaptive.n_boxes]
 
-    # Create figure
-    fig = Figure(size=(1200, 500))
+# Create figure
+fig = Figure(size=(1200, 500))
 
-    # Plot 1: Partition structure (outline only)
-    ax1 = Axis(fig[1, 1],
-        xlabel="x", ylabel="y",
-        title="Adaptive Partition ($(partition_adaptive.n_boxes) boxes)",
-        aspect=1
-    )
+# Plot 1: Partition structure (outline only)
+ax1 = Axis(fig[1, 1],
+    xlabel="x", ylabel="y",
+    title="Adaptive Partition ($(partition_adaptive.n_boxes) boxes)",
+    aspect=1
+)
 
-    # Draw partition boxes as outlines
-    for box in partition_adaptive.boxes
-        x_coords = [inf(box[1]), sup(box[1]), sup(box[1]), inf(box[1]), inf(box[1])]
-        y_coords = [inf(box[2]), inf(box[2]), sup(box[2]), sup(box[2]), inf(box[2])]
-        lines!(ax1, x_coords, y_coords, color=:gray, linewidth=0.5)
-    end
-
-    # Plot 2: Invariant density (filled rectangles)
-    ax2 = Axis(fig[1, 2],
-        xlabel="x", ylabel="y",
-        title="Invariant Density",
-        aspect=1
-    )
-
-    # Plot each box as a colored rectangle
-    for (i, box) in enumerate(partition_adaptive.boxes)
-        x_min, x_max = inf(box[1]), sup(box[1])
-        y_min, y_max = inf(box[2]), sup(box[2])
-
-        rect = [
-            (x_min, y_min), (x_max, y_min),
-            (x_max, y_max), (x_min, y_max)
-        ]
-
-        poly!(ax2, rect, color=densities[i], colormap=:viridis,
-              colorrange=(0, maximum(densities)))
-    end
-
-    Colorbar(fig[1, 3], colormap=:viridis,
-             limits=(0, maximum(densities)), label="Density ρ(x,y)")
-
-    # Save figure
-    output_file = joinpath(@__DIR__, "05_contracting_lorenz_output.png")
-    save(output_file, fig)
-    println("\nSaved visualization to ", output_file)
+# Draw partition boxes as outlines
+for box in partition_adaptive.boxes
+    x_coords = [inf(box[1]), sup(box[1]), sup(box[1]), inf(box[1]), inf(box[1])]
+    y_coords = [inf(box[2]), inf(box[2]), sup(box[2]), sup(box[2]), inf(box[2])]
+    lines!(ax1, x_coords, y_coords, color=:gray, linewidth=0.5)
 end
+
+# Plot 2: Invariant density (filled rectangles)
+ax2 = Axis(fig[1, 2],
+    xlabel="x", ylabel="y",
+    title="Invariant Density",
+    aspect=1
+)
+
+# Plot each box as a colored rectangle
+for (i, box) in enumerate(partition_adaptive.boxes)
+    x_min, x_max = inf(box[1]), sup(box[1])
+    y_min, y_max = inf(box[2]), sup(box[2])
+
+    rect = [
+        (x_min, y_min), (x_max, y_min),
+        (x_max, y_max), (x_min, y_max)
+    ]
+
+    poly!(ax2, rect, color=densities[i], colormap=:viridis,
+          colorrange=(0, maximum(densities)))
+end
+
+Colorbar(fig[1, 3], colormap=:viridis,
+         limits=(0, maximum(densities)), label="Density ρ(x,y)")
+
+# Save figure
+output_file = joinpath(@__DIR__, "05_contracting_lorenz_output.png")
+save(output_file, fig)
+println("\nSaved visualization to ", output_file)
 
 println("\n" * "="^70)
 println("Example completed successfully!")

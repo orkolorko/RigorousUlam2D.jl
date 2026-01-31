@@ -14,6 +14,7 @@ Pkg.instantiate()  # Install dependencies if needed
 using RigorousUlam2D
 using IntervalArithmetic, IntervalBoxes
 using LinearAlgebra, SparseArrays
+using Arpack
 using Printf
 using CairoMakie
 
@@ -76,18 +77,22 @@ println("\nComposing P_noisy = N * P...")
 P = N * P
 
 # Normalize to stochastic matrix
-col_sums = normalize_columns!(P)
+col_sums_before = normalize_columns!(P)
+
+# Compute column sums after normalization
+col_sums_after = [sum(P[:, j]) for j in 1:size(P, 2)]
 
 println("\nTransition matrix statistics:")
 @printf("  Size: %d × %d\n", size(P)...)
 @printf("  Non-zeros: %d\n", nnz(P))
 stats = estimate_sparsity(P)
 @printf("  Sparsity: %.2f%%\n", 100*stats.sparsity)
-@printf("  Column sum range: [%.6f, %.6f]\n", minimum(col_sums), maximum(col_sums))
+@printf("  Column sum range (normalized): [%.6f, %.6f]\n", minimum(col_sums_after), maximum(col_sums_after))
 
 # Find invariant measure (leading eigenvector)
 println("\nComputing invariant measure...")
 if size(P, 1) <= 500
+    # Use dense eigendecomposition for small matrices
     λ, v = eigen(Matrix(P))
     idx = argmax(abs.(λ))
     μ = abs.(v[:, idx])
@@ -96,42 +101,49 @@ if size(P, 1) <= 500
     println("  Leading eigenvalue: ", round(λ[idx], digits=6))
     println("  Invariant measure computed successfully")
     println("  Active boxes (>1e-4): ", count(μ .> 1e-4))
-
-    # Visualization
-    println("\nCreating visualization...")
-    densities = [μ[i] / box_measure(partition.boxes[i]) for i in 1:partition.n_boxes]
-
-    fig = Figure(size=(800, 700))
-    ax = Axis(fig[1, 1],
-        xlabel="x", ylabel="y",
-        title="Invariant Density - Contracting Map",
-        aspect=1
-    )
-
-    # Plot each box as a colored rectangle
-    for (i, box) in enumerate(partition.boxes)
-        x_min, x_max = inf(box[1]), sup(box[1])
-        y_min, y_max = inf(box[2]), sup(box[2])
-
-        # Create rectangle vertices
-        rect = [
-            (x_min, y_min), (x_max, y_min),
-            (x_max, y_max), (x_min, y_max)
-        ]
-
-        poly!(ax, rect, color=densities[i], colormap=:viridis,
-              colorrange=(0, maximum(densities)))
-    end
-
-    Colorbar(fig[1, 2], colormap=:viridis,
-             limits=(0, maximum(densities)), label="Density ρ(x,y)")
-    output_file = joinpath(@__DIR__, "01_contracting_map_output.png")
-    save(output_file, fig)
-    println("Saved visualization to ", output_file)
 else
-    println("  Partition too large for dense eigenvalue computation")
-    println("  Consider using iterative methods (Arnoldi, etc.)")
+    # Use Arpack for large matrices (compute only leading eigenvector)
+    println("  Matrix size $(size(P, 1)) - using sparse Arnoldi method...")
+    λ, v = eigs(P', nev=1, which=:LM)  # Transpose because eigs finds right eigenvectors
+    μ = abs.(v[:, 1])
+    μ ./= sum(μ)
+
+    println("  Leading eigenvalue: ", round(λ[1], digits=6))
+    println("  Invariant measure computed successfully")
+    println("  Active boxes (>1e-4): ", count(μ .> 1e-4))
 end
+
+# Visualization
+println("\nCreating visualization...")
+densities = [μ[i] / box_measure(partition.boxes[i]) for i in 1:partition.n_boxes]
+
+fig = Figure(size=(800, 700))
+ax = Axis(fig[1, 1],
+    xlabel="x", ylabel="y",
+    title="Invariant Density - Contracting Map",
+    aspect=1
+)
+
+# Plot each box as a colored rectangle
+for (i, box) in enumerate(partition.boxes)
+    x_min, x_max = inf(box[1]), sup(box[1])
+    y_min, y_max = inf(box[2]), sup(box[2])
+
+    # Create rectangle vertices
+    rect = [
+        (x_min, y_min), (x_max, y_min),
+        (x_max, y_max), (x_min, y_max)
+    ]
+
+    poly!(ax, rect, color=densities[i], colormap=:viridis,
+          colorrange=(0, maximum(densities)))
+end
+
+Colorbar(fig[1, 2], colormap=:viridis,
+         limits=(0, maximum(densities)), label="Density ρ(x,y)")
+output_file = joinpath(@__DIR__, "01_contracting_map_output.png")
+save(output_file, fig)
+println("Saved visualization to ", output_file)
 
 println("\n" * "="^70)
 println("Example completed successfully!")

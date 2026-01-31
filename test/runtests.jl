@@ -37,5 +37,6 @@ using Test
     include("test_noise_convolution.jl")
     include("test_grid_aligned_noise.jl")
     include("test_domain_restriction.jl")
+    include("test_ulam_discretization.jl")
 
 end

@@ -43,6 +43,7 @@ export noisy_image_periodic
 # Spectral analysis (Galatolo-Nisoli / ZZ paper)
 export operator_norm_on_V, operator_norm_on_V_power, find_contraction_power
 export rigorous_norm_on_V, rigorous_norm_on_V_power, higham_gamma
+export norms_of_powers_sparse, refine_norms_of_powers, norms_of_powers_from_coarser_grid
 export compute_stationary_density, spectral_gap
 export noise_variation, ulam_approximation_error, rigorous_error_bound
 

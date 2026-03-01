@@ -104,7 +104,7 @@ if size(P, 1) <= 500
 else
     # Use Arpack for large matrices (compute only leading eigenvector)
     println("  Matrix size $(size(P, 1)) - using sparse Arnoldi method...")
-    λ, v = eigs(P', nev=1, which=:LM)  # Transpose because eigs finds right eigenvectors
+    λ, v = eigs(P, nev=1, which=:LR)
     μ = abs.(v[:, 1])
     μ ./= sum(μ)
 
@@ -124,20 +124,12 @@ ax = Axis(fig[1, 1],
     aspect=1
 )
 
-# Plot each box as a colored rectangle
-for (i, box) in enumerate(partition.boxes)
-    x_min, x_max = inf(box[1]), sup(box[1])
-    y_min, y_max = inf(box[2]), sup(box[2])
-
-    # Create rectangle vertices
-    rect = [
-        (x_min, y_min), (x_max, y_min),
-        (x_max, y_max), (x_min, y_max)
-    ]
-
-    poly!(ax, rect, color=densities[i], colormap=:viridis,
-          colorrange=(0, maximum(densities)))
-end
+# Plot all boxes as colored rectangles (vectorized for performance)
+rects = [Rect2f(inf(box[1]), inf(box[2]),
+                sup(box[1]) - inf(box[1]), sup(box[2]) - inf(box[2]))
+         for box in partition.boxes]
+poly!(ax, rects, color=densities, colormap=:viridis,
+      colorrange=(0, maximum(densities)))
 
 Colorbar(fig[1, 2], colormap=:viridis,
          limits=(0, maximum(densities)), label="Density ρ(x,y)")

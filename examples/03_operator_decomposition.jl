@@ -14,7 +14,9 @@ Pkg.instantiate()  # Install dependencies if needed
 using RigorousUlam2D
 using IntervalArithmetic, IntervalBoxes
 using LinearAlgebra, SparseArrays
+using Arpack
 using Printf
+using CairoMakie
 
 println("="^70)
 println("Example 3: Operator Decomposition")
@@ -99,6 +101,49 @@ for σ in noise_levels
 end
 
 println("\n  ✓ Reused P_det for all noise levels (no recomputation needed!)")
+
+# Visualization: density for the composed operator
+println("\n" * "="^70)
+println("Density Visualization")
+println("="^70)
+
+P_vis = copy(P_composed)
+normalize_columns!(P_vis)
+
+println("\nComputing invariant measure...")
+if size(P_vis, 1) <= 500
+    λ_all, v_all = eigen(Matrix(P_vis))
+    idx = argmax(abs.(λ_all))
+    μ = abs.(v_all[:, idx])
+    μ ./= sum(μ)
+else
+    λ_lead, v_lead = eigs(P_vis, nev=1, which=:LR)
+    μ = abs.(v_lead[:, 1])
+    μ ./= sum(μ)
+end
+println("  Active boxes (>1e-4): ", count(μ .> 1e-4))
+
+densities = [μ[i] / box_measure(partition.boxes[i]) for i in 1:partition.n_boxes]
+
+fig = Figure(size=(800, 700))
+ax = Axis(fig[1, 1],
+    xlabel="x", ylabel="y",
+    title="Invariant Density - Operator Decomposition",
+    aspect=1
+)
+
+# Plot all boxes as colored rectangles (vectorized for performance)
+rects = [Rect2f(inf(box[1]), inf(box[2]),
+                sup(box[1]) - inf(box[1]), sup(box[2]) - inf(box[2]))
+         for box in partition.boxes]
+poly!(ax, rects, color=densities, colormap=:viridis,
+      colorrange=(0, maximum(densities)))
+
+Colorbar(fig[1, 2], colormap=:viridis,
+         limits=(0, maximum(densities)), label="Density ρ(x,y)")
+output_file = joinpath(@__DIR__, "03_operator_decomposition_output.png")
+save(output_file, fig)
+println("Saved visualization to ", output_file)
 
 println("\n" * "="^70)
 println("Example completed successfully!")

@@ -26,7 +26,9 @@ println("="^70)
 
 # Contracting Lorenz map
 # This is a Poincaré section of the Lorenz attractor with strong contraction
-function contracting_lorenz(x, y; s=2.5, r=6.0, ρ=1.0, c0=-0.25, c1=0.25)
+# s < 1 gives expansion at x=0 (|T'| ~ |x|^{s-1} → ∞), creating the booklet structure
+# r > 1 gives contraction in y, collapsing onto the 1D attractor
+function contracting_lorenz(x, y; s=0.5, r=3.0, ρ=1.3, c0=-0.25, c1=0.25)
     ax = abs(x)
     
     # For interval arguments, check which branch we're on
@@ -60,18 +62,18 @@ end
 
 # Setup
 domain = IntervalBox(interval(-0.5, 0.5), interval(-0.5, 0.5))
-# Grid-aligned noise: width = domain_width / 2^k (k=6)
-# For domain width 1.0: 1.0/64 = 0.015625
-noise = uniform_noise_box(1.0/64, 2)
+# Grid-aligned noise: width = domain_width / 2^k (k=4)
+# For domain width 1.0: 1.0/16 = 0.0625
+noise = uniform_noise_box(1.0/16, 2)
 
 println("\nSystem:")
-println("  Contracting Lorenz map (s=2.5, r=6.0, ρ=0.8)")
+println("  Contracting Lorenz map (s=0.5, r=3.0, ρ=1.3)")
 println("  Domain: [-0.5, 0.5]²")
-println("  Noise: ±$(1.0/64) uniform (grid-aligned)")
+println("  Noise: ±$(1.0/16) uniform (grid-aligned)")
 println("\nThis map has:")
-println("  - Strong contraction (ρ < 1)")
-println("  - Nonlinearity (power law x^s, x^r)")
-println("  - Singularity at x=0")
+println("  - Expansion at x=0 (|T'| = sρ|x|^{s-1} → ∞)")
+println("  - Strong y-contraction (|x|^r → 0)")
+println("  - Booklet structure: two sheets merging at the singularity")
 
 # Compare uniform vs adaptive partitioning
 println("\n" * "="^70)
@@ -88,7 +90,7 @@ println("  Boxes: $n_uniform")
 @printf("  Potential matrix entries: %d (%.2e)\n", n_uniform^2, Float64(n_uniform^2))
 
 # Adaptive partition with diameter-based stopping
-target_diameter = 0.03125  # Approximately same as uniform depth 5
+target_diameter = 0.02  # Fine enough to resolve the thin booklet structure
 
 println("\nBuilding adaptive partition (target diameter: $target_diameter)...")
 t_partition = @elapsed begin
@@ -98,7 +100,7 @@ t_partition = @elapsed begin
         initial_depth=2,
         safety_margin=1.1,
         verbose=true,
-        enclosure_method = zeroth_order_enclosure,
+        enclosure_method=zeroth_order_enclosure,
     )
 end
 
@@ -132,8 +134,8 @@ t_det = @elapsed begin
         contracting_lorenz, partition_adaptive,
         transition_graph=dyn_graph,
         enclosure_method=zeroth_order_enclosure,
-        max_iterations=8,
-        ε=1e-4
+        max_iterations=12,
+        ε=1e-6
     )
 end
 
@@ -221,10 +223,30 @@ else
         @printf("  Mixing time: ~%.1f iterations\n", 1/rate)
     end
 
-    # Invariant measure (compute leading eigenvector)
-    λ_lead, v_lead = eigs(P', nev=1, which=:LM)
-    μ = abs.(real.(v_lead[:, 1]))
+    # Invariant measure (right eigenvector of column-stochastic P)
+    # Use nev=2 because this period-2 map has two eigenvalues at +1
+    # (left and right branches are separate ergodic components of P²)
+    λ_lead, v_lead = eigs(P, nev=2, which=:LR)
+    n_unity = count(real.(λ_lead) .> 0.999)
+    if n_unity > 1
+        # Combine both components for the full invariant density
+        μ = sum(abs.(real.(v_lead[:, i])) for i in 1:n_unity)
+    else
+        μ = abs.(real.(v_lead[:, 1]))
+    end
     μ ./= sum(μ)
+end
+
+# Rigorous error bound
+println("\nRigorous error bound (Theorem 4.2, ZZ paper)...")
+error_result = rigorous_error_bound(P, partition_adaptive, noise, verbose=true)
+if error_result.mixing_satisfied
+    @printf("\n  ✓ Rigorous L¹ error bound: %.6f\n", error_result.error_bound)
+    @printf("    Contraction power N = %d, rate α = %.6f\n", error_result.N, error_result.α)
+    @printf("    Mesh size δ = %.6f, noise scale ξ = %.6f\n", error_result.δ, error_result.ξ)
+else
+    println("\n  ✗ Mixing condition not satisfied — bound is infinite")
+    println("    Try increasing noise or refining the partition")
 end
 
 active_boxes = count(μ .> 1e-4)
@@ -268,12 +290,11 @@ ax1 = Axis(fig[1, 1],
     aspect=1
 )
 
-# Draw partition boxes as outlines
-for box in partition_adaptive.boxes
-    x_coords = [inf(box[1]), sup(box[1]), sup(box[1]), inf(box[1]), inf(box[1])]
-    y_coords = [inf(box[2]), inf(box[2]), sup(box[2]), sup(box[2]), inf(box[2])]
-    lines!(ax1, x_coords, y_coords, color=:gray, linewidth=0.5)
-end
+# Draw partition boxes as outlines (vectorized)
+rects_outline = [Rect2f(inf(box[1]), inf(box[2]),
+                        sup(box[1]) - inf(box[1]), sup(box[2]) - inf(box[2]))
+                 for box in partition_adaptive.boxes]
+poly!(ax1, rects_outline, color=:transparent, strokecolor=:gray, strokewidth=0.5)
 
 # Plot 2: Invariant density (filled rectangles)
 ax2 = Axis(fig[1, 2],
@@ -282,19 +303,12 @@ ax2 = Axis(fig[1, 2],
     aspect=1
 )
 
-# Plot each box as a colored rectangle
-for (i, box) in enumerate(partition_adaptive.boxes)
-    x_min, x_max = inf(box[1]), sup(box[1])
-    y_min, y_max = inf(box[2]), sup(box[2])
-
-    rect = [
-        (x_min, y_min), (x_max, y_min),
-        (x_max, y_max), (x_min, y_max)
-    ]
-
-    poly!(ax2, rect, color=densities[i], colormap=:viridis,
-          colorrange=(0, maximum(densities)))
-end
+# Plot all boxes as colored rectangles (vectorized for performance)
+rects_density = [Rect2f(inf(box[1]), inf(box[2]),
+                        sup(box[1]) - inf(box[1]), sup(box[2]) - inf(box[2]))
+                 for box in partition_adaptive.boxes]
+poly!(ax2, rects_density, color=densities, colormap=:viridis,
+      colorrange=(0, maximum(densities)))
 
 Colorbar(fig[1, 3], colormap=:viridis,
          limits=(0, maximum(densities)), label="Density ρ(x,y)")

@@ -25,6 +25,7 @@ using SparseArrays
 
 export operator_norm_on_V, find_contraction_power, operator_norm_on_V_power
 export rigorous_norm_on_V, higham_gamma
+export norms_of_powers_sparse, refine_norms_of_powers, norms_of_powers_from_coarser_grid
 export compute_stationary_density, rigorous_error_bound
 export noise_variation, ulam_approximation_error
 
@@ -350,96 +351,316 @@ function rigorous_norm_on_V_power(P::AbstractMatrix, power::Int;
 end
 
 """
+    max_nonzeros_per_row(A::SparseMatrixCSC)
+
+Returns the maximum number of structural nonzeros in any row of A.
+Used to determine γ_z for sparse matrix-vector product error bounds.
+"""
+function max_nonzeros_per_row(A::SparseMatrixCSC)
+    rows = rowvals(A)
+    m = size(A, 1)
+    nonzeros_in_each_row = zeros(Int, m)
+    for i in rows
+        nonzeros_in_each_row[i] += 1
+    end
+    return maximum(nonzeros_in_each_row)
+end
+
+function max_nonzeros_per_row(A::Matrix)
+    return size(A, 2)
+end
+
+"""
+    norms_of_powers_sparse(P::AbstractMatrix, m::Int;
+                           rigorous::Bool=true,
+                           verbose::Bool=false)
+
+Compute rigorous upper bounds on ||P^k|_V||_1 for k = 1, ..., m
+using the sparse Algorithm 2 from Galatolo-Monge-Nisoli-Poloni (2014).
+
+Instead of forming the dense P^k, this iterates v ← P*v for each column
+of the matrix U = [e*; -I] (i.e., for v = e_1 - e_j, j = 2,...,n).
+By Lemma 8.5, ||P^k|_V|| ≤ ||P^k U||_{ℓ^1} = max_j ||P^k(e_1 - e_j)||_1.
+
+Each step is a sparse matrix-vector product: O(nnz) per step.
+Total cost: O(n · m · nnz) with O(n) memory, vs O(n² · m) for the dense approach.
+
+Floating-point errors are tracked per iteration using Higham's γ constants
+(Lemma 8.11 from the paper). For the Ulam projection (integral-preserving),
+the error recurrence is:
+
+    ε₀ = 0
+    ε_{k+1} = (γ_z · ||M|| + δ) · ||v̄_k|| + ||Q_h|| · ε_k
+
+where γ_z = gamma(max_nonzeros_per_row(P)), δ = 0 for floating-point matrices,
+and ||Q_h|| = ||M|| for the midpoint matrix.
+
+# Arguments
+- `P`: Column-stochastic matrix (sparse or dense)
+- `m`: Maximum power to compute norms for
+- `rigorous`: If true, track floating-point error bounds
+- `verbose`: If true, print progress
+
+# Returns
+- Vector of length m: norms[k] is a (rigorous) upper bound on ||P^k|_V||_1
+
+# Reference
+- Galatolo-Monge-Nisoli-Poloni (2014), Section 8.3, Algorithm 2
+"""
+function norms_of_powers_sparse(P::AbstractMatrix, m::Int;
+                                rigorous::Bool=true,
+                                verbose::Bool=false)
+    n = size(P, 1)
+    T = Float64
+    u = eps(T) / 2
+
+    # Use the midpoint matrix (for interval matrices this would differ;
+    # here P is already Float64 so M = P, δ = 0)
+    M = P
+    δ = 0.0
+
+    # Precompute constants for error tracking
+    if rigorous
+        z = issparse(P) ? max_nonzeros_per_row(P) : n
+        γz = z * u / (1 - z * u)  # Higham's γ_z
+        nrmM = maximum(sum(abs.(M), dims=1))  # ||M||_{ℓ^1} = max column 1-norm
+        normQ = nrmM  # For exact Float64 matrix, ||Q_h|| = ||M||
+    end
+
+    # C_k tracks max over j of ||P^k(e_1 - e_j)||_1 + ε_k
+    C = zeros(T, m)
+
+    # Main loop: iterate over columns of U, i.e., vectors e_1 - e_j
+    for j in 2:n
+        # Initialize v = e_1 - e_j
+        v = zeros(T, n)
+        v[1] = 1.0
+        v[j] = -1.0
+
+        nrmv = 2.0  # ||e_1 - e_j||_1 = 2
+        ε = 0.0
+
+        for k in 1:m
+            # Sparse matrix-vector product: w = M * v
+            w = M * v
+
+            # For integral-preserving (Ulam) discretization:
+            # P preserves V, so no projection needed
+            v = w
+
+            if rigorous
+                # Error recurrence (Lemma 8.11, integral-preserving case):
+                # ε_{k+1} = (γ_z · ||M|| + δ) · ||v̄_k|| + ||Q_h|| · ε_k
+                ε = (γz * nrmM + δ) * nrmv + normQ * ε
+            end
+
+            # Compute ||v||_1
+            nrmv = sum(abs, v)
+
+            # Update C_k = max over all j of (||v||_1 + ε)
+            C[k] = max(C[k], nrmv + ε)
+        end
+    end
+
+    if verbose
+        for k in 1:m
+            rig_str = rigorous ? " (rigorous)" : ""
+            println("  k = $k: ||P^k|_V||$rig_str ≤ $(round(C[k], digits=6))")
+        end
+    end
+
+    return C
+end
+
+"""
+    refine_norms_of_powers(norms::Vector, m::Int)
+
+Refine norm bounds using sub-multiplicativity: ||P^{k+h}|| ≤ ||P^k|| · ||P^h||.
+
+Given computed bounds norms[k] ≥ ||P^k|_V||, this produces tighter bounds
+by checking all factorizations k = i + (k-i) and taking the minimum.
+
+# Reference
+- Galatolo-Monge-Nisoli-Poloni (2014), after Algorithm 2
+"""
+function refine_norms_of_powers(norms::Vector, m::Int=length(norms))
+    better_norms = fill(NaN, m)
+    better_norms[1] = norms[1]
+    for k in 2:m
+        better_norms[k] = minimum(better_norms[i] * better_norms[k-i] for i in 1:k-1)
+        if k <= length(norms)
+            better_norms[k] = min(better_norms[k], norms[k])
+        end
+    end
+    return better_norms
+end
+
+"""
+    norms_of_powers_from_coarser_grid(coarse_norms, m, δ_coarse, n_fine, noise;
+                                      normQ::Float64=1.0,
+                                      dfly_coefficients=nothing)
+
+Estimate norms ||Q_{h_F}^k|_V|| on a fine grid from coarse grid norms C_k,
+using the coarse-fine strategy (Corollary 4.6 from Galatolo-Monge-Nisoli-Poloni 2014).
+
+The key formula is:
+    C_k^F ≤ C_k + δ_coarse · Σ_{j=0}^{k-1} C_{k-1-j} · (||Q_F|| · R_j + R_{j+1})
+
+where R_j = ||Q_F^j||_{Var→L¹} bounds the strong-to-weak norm, computed from the
+DFLY (iterated Lasota-Yorke inequality).
+
+For the Ulam discretization with noise:
+- Projection error: Kh = δ_coarse/2 (Lemma 6.3)
+- E = 0 (integral-preserving)
+- Default DFLY: A = 0, B = var(ρ) (noise regularization destroys variation)
+- M_1n = n_fine (strong-weak bound for fine grid)
+
+# Arguments
+- `coarse_norms`: Vector of C_k = ||Q_h^k|_V|| bounds from coarse grid
+- `m`: Number of power norms to compute
+- `δ_coarse`: Mesh size of coarse partition
+- `n_fine`: Number of boxes in fine partition (determines M_1n)
+- `noise`: Noise support box (for computing var(ρ))
+- `normQ`: Operator norm ||Q_{h_F}|| (default 1.0 for stochastic matrices)
+- `dfly_coefficients`: Tuple (A, B) for the Lasota-Yorke inequality.
+  Default: (0.0, var(ρ)) from noise regularization.
+
+# Returns
+- Vector of length m: fine_norms[k] is an upper bound on ||Q_{h_F}^k|_V||
+
+# Reference
+- Galatolo-Monge-Nisoli-Poloni (2014), Corollary 4.6
+"""
+function norms_of_powers_from_coarser_grid(coarse_norms::Vector, m::Int,
+                                           δ_coarse::Float64, n_fine::Int, noise;
+                                           normQ::Float64=1.0,
+                                           dfly_coefficients=nothing)
+    # Ulam constants
+    Kh = δ_coarse / 2       # weak projection error (K=1/2 for Ulam)
+    M_1n = Float64(n_fine)   # strong_weak_bound: Var(f) ≤ n when ||f||_{L^1} = 1
+    Eh = 0.0                 # aux_normalized_projection_error (Ulam is i-preserving)
+
+    # DFLY coefficients: Lasota-Yorke inequality ||Lf||_s ≤ A ||f||_s + B ||f||
+    if dfly_coefficients === nothing
+        # Default: noise regularization (A=0, B=var(ρ))
+        # After one noise convolution, Var(N_ξ g) ≤ Var(ρ) · ||g||_{L^1}
+        var_ρ = noise_variation(noise)
+        A, B = 0.0, var_ρ
+    else
+        A, B = dfly_coefficients
+    end
+
+    # Compute strong norm bounds R_k from DFLY iteration
+    # R_k bounds ||Q^k f||_s for ||f|| = 1
+    # Matrix iteration: [R_s; R_w] ← [A B; Eh 1] · [R_s; R_w]
+    # starting from [M_1n; 1]
+    mmax = min(m, length(coarse_norms))
+
+    # strongs0(k) = R_k (strong norm bound at power k)
+    strongs = Vector{Float64}(undef, mmax + 1)
+    R_s = M_1n  # k=0: strong-weak bound
+    R_w = 1.0   # k=0: aux-weak bound
+    strongs[1] = R_s  # index 1 = power 0
+
+    for k in 1:mmax
+        R_s_new = A * R_s + B * R_w
+        R_w_new = Eh * R_s_new + R_w
+        R_s = R_s_new
+        R_w = R_w_new
+        strongs[k + 1] = R_s  # index k+1 = power k
+    end
+
+    # C_k from coarse grid (with 0th element = 1)
+    coarse0(k::Int) = k == 0 ? 1.0 : coarse_norms[k]
+
+    # Apply Corollary 4.6:
+    # C_k^F ≤ C_k + 2*Kh * Σ_{j=0}^{k-1} C_{k-1-j} * (normQ * R_j + R_{j+1})
+    fine_norms = fill(NaN, mmax)
+    for k in 1:mmax
+        correction = 0.0
+        for j in 0:k-1
+            R_j = strongs[j + 1]        # power j
+            R_j1 = strongs[j + 2]       # power j+1
+            correction += coarse0(k - 1 - j) * (normQ * R_j + R_j1)
+        end
+        fine_norms[k] = coarse_norms[k] + 2 * Kh * correction
+    end
+
+    return fine_norms
+end
+
+"""
     find_contraction_power(P::AbstractMatrix;
                           target_norm::Float64=0.5,
                           max_power::Int=100,
-                          measure::Union{Vector{Float64},Nothing}=nothing,
                           rigorous::Bool=true,
                           verbose::Bool=false)
 
 Find the smallest power N such that ||P^N|_V||_1 < target_norm.
 
-This is the key algorithm from Galatolo-Nisoli (2014) Section 4.1:
-Iterate ||P^j|_V||_1 for j = 1, 2, ... until finding N where ||P^N|_V|| < 1/2.
+Uses the sparse Algorithm 2 from Galatolo-Monge-Nisoli-Poloni (2014):
+instead of forming dense P^k, iterates v ← P*v for each e_1 - e_j.
+Norms are then refined using sub-multiplicativity.
 
 # Arguments
 - `P`: Column-stochastic matrix
 - `target_norm`: Target contraction factor (default 0.5)
 - `max_power`: Maximum power to try before giving up
-- `measure`: Optional measure weights
-- `rigorous`: If true (default), use Higham's a priori bound for rigorous upper bounds
+- `rigorous`: If true (default), track floating-point error bounds
 - `verbose`: If true, print progress
 
 # Returns
 Named tuple with:
 - `N`: The contraction power (or nothing if not found)
 - `α`: The achieved norm ||P^N|_V||_1 (rigorous upper bound if rigorous=true)
-- `norms`: Vector of all computed norms [(1, ||P|_V||), (2, ||P²|_V||), ...]
+- `norms`: Vector of all computed norms
 - `rigorous`: Whether rigorous bounds were used
 
-# Example
-```julia
-P_noisy = N * P_det
-normalize_columns!(P_noisy)
-result = find_contraction_power(P_noisy, target_norm=0.5, rigorous=true, verbose=true)
-if result.N !== nothing
-    println("Contraction achieved at power N = \$(result.N) with rigorous bound α = \$(result.α)")
-end
-```
-
 # Reference
-- Galatolo-Nisoli (2014), Algorithm 4.1
-- Higham (2002) for rigorous floating-point error bounds
+- Galatolo-Monge-Nisoli-Poloni (2014), Section 8.3, Algorithm 2
 """
 function find_contraction_power(P::AbstractMatrix;
                                 target_norm::Float64=0.5,
                                 max_power::Int=100,
-                                measure::Union{Vector{Float64},Nothing}=nothing,
                                 rigorous::Bool=true,
                                 verbose::Bool=false)
-
-    norms = Tuple{Int,Float64}[]
-
-    # Choose norm function based on rigorous flag
-    norm_func = rigorous ? rigorous_norm_on_V : operator_norm_on_V
-
-    # Compute P^j iteratively
-    n = size(P, 1)
-    u = eps(Float64) / 2
-    P_power = Matrix(P)  # P^1
-
-    for j in 1:max_power
-        # Compute ||P^j|_V|| (with or without rigorous error bounds)
-        if rigorous
-            # Account for matrix multiplication errors in P^j
-            γ_mult = j > 1 ? higham_gamma(n, u) * (j - 1) : 0.0
-            base_norm = norm_func(P_power; measure=measure)
-            norm_j = base_norm * (1 + γ_mult)
-        else
-            norm_j = norm_func(P_power; measure=measure)
-        end
-
-        push!(norms, (j, norm_j))
-
-        if verbose
-            rig_str = rigorous ? " (rigorous)" : ""
-            println("  j = $j: ||P^j|_V||$rig_str = $(round(norm_j, digits=6))")
-        end
-
-        if norm_j < target_norm
-            return (N=j, α=norm_j, norms=norms, rigorous=rigorous)
-        end
-
-        # Update P_power = P^(j+1)
-        P_power = P_power * P
+    if verbose
+        println("  Computing norms of powers (sparse algorithm)...")
     end
 
-    # No contraction found within max_power iterations
+    # Compute raw norm bounds via sparse iteration
+    raw_norms = norms_of_powers_sparse(P, max_power;
+                                        rigorous=rigorous,
+                                        verbose=false)
+
+    # Refine using sub-multiplicativity
+    norms = refine_norms_of_powers(raw_norms, max_power)
+
+    if verbose
+        for k in 1:max_power
+            rig_str = rigorous ? " (rigorous)" : ""
+            println("  k = $k: ||P^k|_V||$rig_str ≤ $(round(norms[k], digits=6))")
+            if norms[k] < target_norm
+                break
+            end
+        end
+    end
+
+    # Find first k where norm < target
+    for k in 1:max_power
+        if norms[k] < target_norm
+            norms_tuples = [(j, norms[j]) for j in 1:k]
+            return (N=k, α=norms[k], norms=norms_tuples, rigorous=rigorous)
+        end
+    end
+
+    # No contraction found
     if verbose
         println("  Warning: No contraction found within $max_power iterations")
     end
 
-    return (N=nothing, α=nothing, norms=norms, rigorous=rigorous)
+    norms_tuples = [(j, norms[j]) for j in 1:max_power]
+    return (N=nothing, α=nothing, norms=norms_tuples, rigorous=rigorous)
 end
 
 """

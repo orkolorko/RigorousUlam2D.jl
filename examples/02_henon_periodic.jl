@@ -15,6 +15,7 @@ using IntervalArithmetic, IntervalBoxes
 using LinearAlgebra, SparseArrays
 using Arpack
 using Printf
+using CairoMakie
 
 println("="^70)
 println("Example 2: Hénon Map with Periodic BC")
@@ -113,6 +114,57 @@ if length(λ_sorted) >= 2
     @printf("  Mixing rate: %.6f\n", rate)
     @printf("  Mixing time: ~%.1f iterations\n", 1/rate)
 end
+
+# Rigorous error bound
+println("\nRigorous error bound (Theorem 4.2, ZZ paper)...")
+error_result = rigorous_error_bound(P, partition, noise, verbose=true)
+if error_result.mixing_satisfied
+    @printf("\n  ✓ Rigorous L¹ error bound: %.6f\n", error_result.error_bound)
+    @printf("    Contraction power N = %d, rate α = %.6f\n", error_result.N, error_result.α)
+    @printf("    Mesh size δ = %.6f, noise scale ξ = %.6f\n", error_result.δ, error_result.ξ)
+else
+    println("\n  ✗ Mixing condition not satisfied — bound is infinite")
+    println("    Try increasing noise or refining the partition")
+end
+
+# Compute invariant measure
+println("\nComputing invariant measure...")
+if size(P, 1) <= 500
+    λ_all, v_all = eigen(Matrix(P))
+    idx = argmax(abs.(λ_all))
+    μ = abs.(v_all[:, idx])
+    μ ./= sum(μ)
+else
+    println("  Matrix size $(size(P, 1)) - using sparse Arnoldi method...")
+    λ_lead, v_lead = eigs(P, nev=1, which=:LR)
+    μ = abs.(v_lead[:, 1])
+    μ ./= sum(μ)
+end
+println("  Active boxes (>1e-4): ", count(μ .> 1e-4))
+
+# Visualization
+println("\nCreating visualization...")
+densities = [μ[i] / box_measure(partition.boxes[i]) for i in 1:partition.n_boxes]
+
+fig = Figure(size=(800, 700))
+ax = Axis(fig[1, 1],
+    xlabel="x", ylabel="y",
+    title="Invariant Density - Hénon Map (Periodic BC)",
+    aspect=1
+)
+
+# Plot all boxes as colored rectangles (vectorized for performance)
+rects = [Rect2f(inf(box[1]), inf(box[2]),
+                sup(box[1]) - inf(box[1]), sup(box[2]) - inf(box[2]))
+         for box in partition.boxes]
+poly!(ax, rects, color=densities, colormap=:viridis,
+      colorrange=(0, maximum(densities)))
+
+Colorbar(fig[1, 2], colormap=:viridis,
+         limits=(0, maximum(densities)), label="Density ρ(x,y)")
+output_file = joinpath(@__DIR__, "02_henon_periodic_output.png")
+save(output_file, fig)
+println("Saved visualization to ", output_file)
 
 println("\n" * "="^70)
 println("Example completed successfully!")

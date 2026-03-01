@@ -1,3 +1,8 @@
+# Activate example environment
+import Pkg
+Pkg.activate(@__DIR__)
+Pkg.instantiate()  # Install dependencies if needed
+
 # Example 4: Diameter-Based Error Control
 #
 # This example demonstrates:
@@ -7,8 +12,10 @@
 
 using RigorousUlam2D
 using IntervalArithmetic, IntervalBoxes
-using SparseArrays
+using LinearAlgebra, SparseArrays
+using Arpack
 using Printf
+using CairoMakie
 
 println("="^70)
 println("Example 4: Diameter-Based Error Control")
@@ -101,6 +108,69 @@ end
 
 println("\n✓ Diameter-based stopping provides direct error control!")
 println("✓ No need to guess refinement levels!")
+
+# Visualization: density for finest partition
+println("\n" * "="^70)
+println("Density Visualization (finest partition, δ = 0.01)")
+println("="^70)
+
+partition_fine, dyn_graph_fine, topo_graph_fine = build_adaptive_partition(
+    F, domain, noise,
+    max_diameter=0.01,
+    initial_depth=2,
+    verbose=false
+)
+
+P_fine, _ = build_transition_matrix(
+    F, partition_fine,
+    transition_graph=dyn_graph_fine,
+    max_iterations=8,
+    ε=1e-4
+)
+
+N_fine = build_grid_aligned_noise_operator(
+    noise, partition_fine,
+    topological_graph=topo_graph_fine
+)
+
+P_fine = N_fine * P_fine
+normalize_columns!(P_fine)
+
+println("\nComputing invariant measure...")
+if size(P_fine, 1) <= 500
+    λ_all, v_all = eigen(Matrix(P_fine))
+    idx = argmax(abs.(λ_all))
+    μ = abs.(v_all[:, idx])
+    μ ./= sum(μ)
+else
+    λ_lead, v_lead = eigs(P_fine, nev=1, which=:LR)
+    μ = abs.(v_lead[:, 1])
+    μ ./= sum(μ)
+end
+println("  Boxes: $(partition_fine.n_boxes)")
+println("  Active boxes (>1e-4): ", count(μ .> 1e-4))
+
+densities = [μ[i] / box_measure(partition_fine.boxes[i]) for i in 1:partition_fine.n_boxes]
+
+fig = Figure(size=(800, 700))
+ax = Axis(fig[1, 1],
+    xlabel="x", ylabel="y",
+    title="Invariant Density - Error Control (δ = 0.01)",
+    aspect=1
+)
+
+# Plot all boxes as colored rectangles (vectorized for performance)
+rects = [Rect2f(inf(box[1]), inf(box[2]),
+                sup(box[1]) - inf(box[1]), sup(box[2]) - inf(box[2]))
+         for box in partition_fine.boxes]
+poly!(ax, rects, color=densities, colormap=:viridis,
+      colorrange=(0, maximum(densities)))
+
+Colorbar(fig[1, 2], colormap=:viridis,
+         limits=(0, maximum(densities)), label="Density ρ(x,y)")
+output_file = joinpath(@__DIR__, "04_diameter_error_control_output.png")
+save(output_file, fig)
+println("Saved visualization to ", output_file)
 
 println("\n" * "="^70)
 println("Example completed successfully!")

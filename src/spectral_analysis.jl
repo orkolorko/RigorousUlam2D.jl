@@ -420,6 +420,9 @@ function norms_of_powers_sparse(P::AbstractMatrix, m::Int;
     δ = 0.0
 
     # Precompute constants for error tracking
+    γz = zero(T)
+    nrmM = zero(T)
+    normQ = zero(T)
     if rigorous
         z = issparse(P) ? max_nonzeros_per_row(P) : n
         γz = z * u / (1 - z * u)  # Higham's γ_z
@@ -427,11 +430,16 @@ function norms_of_powers_sparse(P::AbstractMatrix, m::Int;
         normQ = nrmM  # For exact Float64 matrix, ||Q_h|| = ||M||
     end
 
-    # C_k tracks max over j of ||P^k(e_1 - e_j)||_1 + ε_k
-    C = zeros(T, m)
+    # Multithreaded: each thread accumulates its own C_k vector
+    nt = Threads.maxthreadid()
+    C_local = [zeros(T, m) for _ in 1:nt]
 
     # Main loop: iterate over columns of U, i.e., vectors e_1 - e_j
-    for j in 2:n
+    # Each j is independent → embarrassingly parallel
+    Threads.@threads :static for j in 2:n
+        tid = Threads.threadid()
+        C_t = C_local[tid]
+
         # Initialize v = e_1 - e_j
         v = zeros(T, n)
         v[1] = 1.0
@@ -457,8 +465,16 @@ function norms_of_powers_sparse(P::AbstractMatrix, m::Int;
             # Compute ||v||_1
             nrmv = sum(abs, v)
 
-            # Update C_k = max over all j of (||v||_1 + ε)
-            C[k] = max(C[k], nrmv + ε)
+            # Update thread-local C_k
+            C_t[k] = max(C_t[k], nrmv + ε)
+        end
+    end
+
+    # Reduce: take max over all threads
+    C = zeros(T, m)
+    for t in 1:nt
+        for k in 1:m
+            C[k] = max(C[k], C_local[t][k])
         end
     end
 

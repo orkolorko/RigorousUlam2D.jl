@@ -222,10 +222,19 @@ function build_transition_matrix(F, partition::UlamPartition{N},
                                             ε=ε, max_iterations=max_iterations)
     end
 
-    # If transition graph is provided, use it to skip zero entries
+    # Multithreaded assembly: each thread accumulates its own COO triples
+    nt = Threads.maxthreadid()
+    thread_I = [Int[] for _ in 1:nt]
+    thread_J = [Int[] for _ in 1:nt]
+    thread_V = [Float64[] for _ in 1:nt]
+    thread_uI = [Int[] for _ in 1:nt]
+    thread_uJ = [Int[] for _ in 1:nt]
+    thread_uV = [Float64[] for _ in 1:nt]
+
     if transition_graph !== nothing
         rows = rowvals(transition_graph)
-        for j in 1:n
+        Threads.@threads :static for j in 1:n
+            tid = Threads.threadid()
             Q_source = partition.boxes[j]
             source_measure = box_measure(Q_source)
 
@@ -233,7 +242,6 @@ function build_transition_matrix(F, partition::UlamPartition{N},
                 continue
             end
 
-            # Only check boxes that can potentially receive mass from j
             for idx in nzrange(transition_graph, j)
                 i = rows[idx]
                 Q_target = partition.boxes[i]
@@ -244,23 +252,21 @@ function build_transition_matrix(F, partition::UlamPartition{N},
                 uncertainty = upper - lower
 
                 if transition_measure > 0
-                    push!(I_indices, i)
-                    push!(J_indices, j)
-                    # rel_size already returns relative measures (fractions in [0,1])
-                    # so we multiply by source_measure to get absolute measures
-                    push!(values, transition_measure * source_measure)
+                    push!(thread_I[tid], i)
+                    push!(thread_J[tid], j)
+                    push!(thread_V[tid], transition_measure * source_measure)
                 end
 
                 if uncertainty > 0
-                    push!(uncertainties_I, i)
-                    push!(uncertainties_J, j)
-                    push!(uncertainties_vals, uncertainty * source_measure)
+                    push!(thread_uI[tid], i)
+                    push!(thread_uJ[tid], j)
+                    push!(thread_uV[tid], uncertainty * source_measure)
                 end
             end
         end
     else
-        # No graph: check all pairs (original behavior)
-        for j in 1:n
+        Threads.@threads :static for j in 1:n
+            tid = Threads.threadid()
             Q_source = partition.boxes[j]
             source_measure = box_measure(Q_source)
 
@@ -277,21 +283,27 @@ function build_transition_matrix(F, partition::UlamPartition{N},
                 uncertainty = upper - lower
 
                 if transition_measure > 0
-                    push!(I_indices, i)
-                    push!(J_indices, j)
-                    # rel_size already returns relative measures (fractions in [0,1])
-                    # so we multiply by source_measure to get absolute measures
-                    push!(values, transition_measure * source_measure)
+                    push!(thread_I[tid], i)
+                    push!(thread_J[tid], j)
+                    push!(thread_V[tid], transition_measure * source_measure)
                 end
 
                 if uncertainty > 0
-                    push!(uncertainties_I, i)
-                    push!(uncertainties_J, j)
-                    push!(uncertainties_vals, uncertainty * source_measure)
+                    push!(thread_uI[tid], i)
+                    push!(thread_uJ[tid], j)
+                    push!(thread_uV[tid], uncertainty * source_measure)
                 end
             end
         end
     end
+
+    # Reduce: concatenate all thread-local COO triples
+    I_indices = reduce(vcat, thread_I)
+    J_indices = reduce(vcat, thread_J)
+    values = reduce(vcat, thread_V)
+    uncertainties_I = reduce(vcat, thread_uI)
+    uncertainties_J = reduce(vcat, thread_uJ)
+    uncertainties_vals = reduce(vcat, thread_uV)
 
     # Create sparse matrices
     P = sparse(I_indices, J_indices, values, n, n)

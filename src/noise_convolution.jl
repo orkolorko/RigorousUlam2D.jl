@@ -540,13 +540,17 @@ function build_grid_aligned_noise_operator(noise::IntervalBox{N}, partition::Ula
     end
 
     n = partition.n_boxes
-    I_indices = Int[]
-    J_indices = Int[]
-    values = Float64[]
+
+    # Multithreaded: each thread accumulates its own COO triples
+    nt = Threads.maxthreadid()
+    thread_I = [Int[] for _ in 1:nt]
+    thread_J = [Int[] for _ in 1:nt]
+    thread_V = [Float64[] for _ in 1:nt]
 
     # For each source box, compute exact overlap with neighbors
     rows = rowvals(topological_graph)
-    for j in 1:n
+    Threads.@threads :static for j in 1:n
+        tid = Threads.threadid()
         source_box = partition.boxes[j]
 
         # Compute noisy box: source ⊕ noise
@@ -554,7 +558,6 @@ function build_grid_aligned_noise_operator(noise::IntervalBox{N}, partition::Ula
 
         if periodic
             # For grid-aligned periodic noise, handle wraparound explicitly
-            # Check if noisy_box wraps around in any dimension
             wraps_around = false
             for i in 1:N
                 inf_wrapped = wrap_to_torus(inf(noisy_box[i]), inf(domain[i]), sup(domain[i]))
@@ -566,8 +569,7 @@ function build_grid_aligned_noise_operator(noise::IntervalBox{N}, partition::Ula
             end
 
             if wraps_around
-                # Wraparound case: enumerate all wrapped components explicitly
-                # Build all wrapped components by splitting in each dimension
+                # Wraparound case: enumerate all wrapped components
                 components = [noisy_box]
                 for dim in 1:N
                     period = diam(domain[dim])
@@ -578,7 +580,6 @@ function build_grid_aligned_noise_operator(noise::IntervalBox{N}, partition::Ula
                         sup_wrapped = wrap_to_torus(sup(noisy_interval), inf(domain[dim]), sup(domain[dim]))
 
                         if inf_wrapped > sup_wrapped
-                            # Splits into two pieces in this dimension
                             new_components = IntervalBox{N}[]
                             for comp in components
                                 intervals1 = [comp[k] for k in 1:N]
@@ -594,6 +595,7 @@ function build_grid_aligned_noise_operator(noise::IntervalBox{N}, partition::Ula
                 end
 
                 # Process each component separately
+                # Duplicate (i,j) entries are summed by sparse() constructor
                 noisy_volume = box_measure(noisy_box)
                 for comp in components
                     for idx in nzrange(topological_graph, j)
@@ -606,27 +608,15 @@ function build_grid_aligned_noise_operator(noise::IntervalBox{N}, partition::Ula
                             fraction = overlap_volume / noisy_volume
 
                             if fraction > 0
-                                # Find if we already have this edge
-                                found = false
-                                for k in 1:length(I_indices)
-                                    if I_indices[k] == i && J_indices[k] == j
-                                        values[k] += fraction
-                                        found = true
-                                        break
-                                    end
-                                end
-                                if !found
-                                    push!(I_indices, i)
-                                    push!(J_indices, j)
-                                    push!(values, fraction)
-                                end
+                                push!(thread_I[tid], i)
+                                push!(thread_J[tid], j)
+                                push!(thread_V[tid], fraction)
                             end
                         end
                     end
                 end
                 continue  # Skip the non-periodic case
             else
-                # No wraparound: just apply periodic BC normally
                 noisy_box = apply_periodic_bc(noisy_box, domain)
             end
         end
@@ -637,7 +627,6 @@ function build_grid_aligned_noise_operator(noise::IntervalBox{N}, partition::Ula
             i = rows[idx]
             target_box = partition.boxes[i]
 
-            # Compute exact overlap: intersection volume / noisy volume
             overlap_box = intersect_boxes(noisy_box, target_box)
 
             if !is_empty_box(overlap_box)
@@ -645,13 +634,19 @@ function build_grid_aligned_noise_operator(noise::IntervalBox{N}, partition::Ula
                 fraction = overlap_volume / noisy_volume
 
                 if fraction > 0
-                    push!(I_indices, i)
-                    push!(J_indices, j)
-                    push!(values, fraction)
+                    push!(thread_I[tid], i)
+                    push!(thread_J[tid], j)
+                    push!(thread_V[tid], fraction)
                 end
             end
         end
     end
+
+    # Reduce: concatenate thread-local triples
+    # sparse() with + combiner handles duplicate (i,j) from periodic wraparound
+    I_indices = reduce(vcat, thread_I)
+    J_indices = reduce(vcat, thread_J)
+    values = reduce(vcat, thread_V)
 
     N_op = sparse(I_indices, J_indices, values, n, n)
     return N_op

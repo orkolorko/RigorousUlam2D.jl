@@ -448,16 +448,16 @@ function norms_of_powers_sparse(P::AbstractMatrix, m::Int;
         v[1] = 0.5
         v[j] = -0.5
 
+        # Preallocate workspace to avoid GC pressure in the inner loop
+        w = zeros(T, n)
+
         nrmv = 1.0  # ||(1/2)(e_1 - e_j)||_1 = 1
         ε = 0.0
 
         for k in 1:m
-            # Sparse matrix-vector product: w = M * v
-            w = M * v
-
-            # For integral-preserving (Ulam) discretization:
-            # P preserves V, so no projection needed
-            v = w
+            # In-place sparse matrix-vector product: w = M * v
+            mul!(w, M, v)
+            v, w = w, v  # swap (no allocation)
 
             if rigorous
                 # Error recurrence (Lemma 8.11, integral-preserving case):

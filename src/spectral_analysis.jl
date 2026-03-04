@@ -426,8 +426,10 @@ function norms_of_powers_sparse(P::AbstractMatrix, m::Int;
     if rigorous
         z = issparse(P) ? max_nonzeros_per_row(P) : n
         γz = z * u / (1 - z * u)  # Higham's γ_z
-        nrmM = maximum(sum(abs.(M), dims=1))  # ||M||_{ℓ^1} = max column 1-norm
-        normQ = nrmM  # For exact Float64 matrix, ||Q_h|| = ||M||
+        # For column-stochastic (Markov) operators, ||P||_{ℓ^1} = 1
+        # and ||P|_V|| ≤ 1 (uniform bound on U_0)
+        nrmM = 1.0
+        normQ = 1.0
     end
 
     # Multithreaded: each thread accumulates its own C_k vector
@@ -440,12 +442,13 @@ function norms_of_powers_sparse(P::AbstractMatrix, m::Int;
         tid = Threads.threadid()
         C_t = C_local[tid]
 
-        # Initialize v = e_1 - e_j
+        # Initialize v = (1/2)(e_1 - e_j), normalized so ||v||_1 = 1
+        # The extreme points of the unit ball in V are (1/2)(e_j - e_k)
         v = zeros(T, n)
-        v[1] = 1.0
-        v[j] = -1.0
+        v[1] = 0.5
+        v[j] = -0.5
 
-        nrmv = 2.0  # ||e_1 - e_j||_1 = 2
+        nrmv = 1.0  # ||(1/2)(e_1 - e_j)||_1 = 1
         ε = 0.0
 
         for k in 1:m
@@ -540,11 +543,12 @@ function norms_of_powers_matvec(matvec, n::Int, m::Int;
         tid = Threads.threadid()
         C_t = C_local[tid]
 
+        # Normalized test vector: (1/2)(e_1 - e_j), ||v||_1 = 1
         v = zeros(T, n)
-        v[1] = 1.0
-        v[j] = -1.0
+        v[1] = 0.5
+        v[j] = -0.5
 
-        nrmv = 2.0
+        nrmv = 1.0
         ε = 0.0
 
         for k in 1:m

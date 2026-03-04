@@ -651,3 +651,152 @@ function build_grid_aligned_noise_operator(noise::IntervalBox{N}, partition::Ula
     N_op = sparse(I_indices, J_indices, values, n, n)
     return N_op
 end
+
+"""
+    build_grid_index_maps(partition::UlamPartition{2}, grid_dims::Tuple{Int,Int})
+
+Build mappings between box indices and (ix, iy) grid positions.
+
+build_uniform_partition uses Z-order (Morton curve) from recursive quadrisection,
+not simple row/column major order. This function builds the index maps needed for
+noise_matvec.
+
+# Returns
+- `box_to_grid`: Vector{Tuple{Int,Int}} — box_to_grid[k] = (ix, iy) for box k
+- `grid_to_box`: Matrix{Int} — grid_to_box[iy, ix] = box index k
+"""
+function build_grid_index_maps(partition::UlamPartition{2}, grid_dims::Tuple{Int,Int})
+    nx, ny = grid_dims
+    n = nx * ny
+    domain = partition.domain
+    dx = diam(domain[1]) / nx
+    dy = diam(domain[2]) / ny
+
+    box_to_grid = Vector{Tuple{Int,Int}}(undef, n)
+    grid_to_box = zeros(Int, ny, nx)
+
+    for k in 1:n
+        box = partition.boxes[k]
+        cx = (inf(box[1]) + sup(box[1])) / 2
+        cy = (inf(box[2]) + sup(box[2])) / 2
+        ix = clamp(Int(floor((cx - inf(domain[1])) / dx)) + 1, 1, nx)
+        iy = clamp(Int(floor((cy - inf(domain[2])) / dy)) + 1, 1, ny)
+        box_to_grid[k] = (ix, iy)
+        grid_to_box[iy, ix] = k
+    end
+
+    return box_to_grid, grid_to_box
+end
+
+"""
+    noise_matvec(v::AbstractVector, noise::IntervalBox{2}, partition::UlamPartition{2};
+                 grid_dims::Tuple{Int,Int},
+                 box_to_grid=nothing, grid_to_box=nothing)
+
+Apply noise convolution to a vector v without forming the explicit noise matrix.
+
+For a uniform partition on a 2D domain with grid dimensions (nx, ny), noise convolution
+is a 2D discrete convolution. The vector v is mapped to a 2D grid, convolved with the
+noise kernel, and mapped back.
+
+This avoids storing the O(n × (ξ/δ)²) noise matrix, using only O(n) memory.
+The cost is O(n × r²) where r = ξ/δ is the noise radius in grid cells.
+
+# Arguments
+- `v`: Input vector of length n = nx × ny
+- `noise`: Noise support box
+- `partition`: The partition (for domain/box info)
+- `grid_dims`: Tuple (nx, ny) — number of boxes in each dimension
+- `box_to_grid`, `grid_to_box`: Precomputed index maps (from build_grid_index_maps).
+  If not provided, they will be computed (expensive — pass them for repeated calls).
+
+# Returns
+- Result vector N * v of length n
+"""
+function noise_matvec(v::AbstractVector, noise::IntervalBox{2}, partition::UlamPartition{2};
+                      grid_dims::Tuple{Int,Int},
+                      periodic::Bool=false,
+                      box_to_grid=nothing, grid_to_box=nothing)
+    nx, ny = grid_dims
+    n = nx * ny
+    @assert length(v) == n
+
+    # Build index maps if not provided
+    if box_to_grid === nothing || grid_to_box === nothing
+        box_to_grid, grid_to_box = build_grid_index_maps(partition, grid_dims)
+    end
+
+    domain = partition.domain
+    dx = diam(domain[1]) / nx
+    dy = diam(domain[2]) / ny
+
+    # Noise half-width in grid cells: σ/dx where σ = noise_half_width
+    σx = diam(noise[1]) / 2
+    σy = diam(noise[2]) / 2
+    rx = Int(round(σx / dx))
+    ry = Int(round(σy / dy))
+
+    # Noisy box covers (2*rx+1) × (2*ry+1) cells (source cell + rx on each side)
+    noise_vol = (2 * rx + 1) * (2 * ry + 1)
+    w = 1.0 / noise_vol
+
+    # Map v to 2D grid
+    V = zeros(eltype(v), ny, nx)
+    for k in 1:n
+        ix, iy = box_to_grid[k]
+        V[iy, ix] = v[k]
+    end
+
+    # Apply 2D convolution: offset range -rx:rx (inclusive on both sides)
+    W = zeros(eltype(v), ny, nx)
+    if periodic
+        # Circular convolution: wrap indices using mod
+        for jx in 1:nx
+            for jy in 1:ny
+                val = V[jy, jx]
+                if val == 0
+                    continue
+                end
+                for dx_off in -rx:rx
+                    ix = mod1(jx + dx_off, nx)
+                    for dy_off in -ry:ry
+                        iy = mod1(jy + dy_off, ny)
+                        W[iy, ix] += w * val
+                    end
+                end
+            end
+        end
+    else
+        # Absorbing BC: skip out-of-domain indices
+        for jx in 1:nx
+            for jy in 1:ny
+                val = V[jy, jx]
+                if val == 0
+                    continue
+                end
+                for dx_off in -rx:rx
+                    ix = jx + dx_off
+                    if ix < 1 || ix > nx
+                        continue
+                    end
+                    for dy_off in -ry:ry
+                        iy = jy + dy_off
+                        if iy < 1 || iy > ny
+                            continue
+                        end
+                        W[iy, ix] += w * val
+                    end
+                end
+            end
+        end
+    end
+
+    # Map back to box ordering
+    result = zeros(eltype(v), n)
+    for k in 1:n
+        ix, iy = box_to_grid[k]
+        result[k] = W[iy, ix]
+    end
+
+    return result
+end

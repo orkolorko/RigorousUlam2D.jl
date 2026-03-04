@@ -25,7 +25,7 @@ using SparseArrays
 
 export operator_norm_on_V, find_contraction_power, operator_norm_on_V_power
 export rigorous_norm_on_V, higham_gamma
-export norms_of_powers_sparse, refine_norms_of_powers, norms_of_powers_from_coarser_grid
+export norms_of_powers_sparse, norms_of_powers_matvec, refine_norms_of_powers, norms_of_powers_from_coarser_grid
 export compute_stationary_density, rigorous_error_bound
 export noise_variation, ulam_approximation_error
 
@@ -471,6 +471,95 @@ function norms_of_powers_sparse(P::AbstractMatrix, m::Int;
     end
 
     # Reduce: take max over all threads
+    C = zeros(T, m)
+    for t in 1:nt
+        for k in 1:m
+            C[k] = max(C[k], C_local[t][k])
+        end
+    end
+
+    if verbose
+        for k in 1:m
+            rig_str = rigorous ? " (rigorous)" : ""
+            println("  k = $k: ||P^k|_V||$rig_str ≤ $(round(C[k], digits=6))")
+        end
+    end
+
+    return C
+end
+
+"""
+    norms_of_powers_matvec(matvec, n::Int, m::Int;
+                           nrmM::Float64=1.0,
+                           max_nnz_per_row::Int=n,
+                           rigorous::Bool=true,
+                           verbose::Bool=false)
+
+Compute rigorous upper bounds on ||P^k|_V||_1 using a mat-vec oracle.
+
+This is the same as `norms_of_powers_sparse` but instead of requiring the explicit
+matrix P, it accepts a function `matvec(v) -> P*v`. This enables:
+- Matrix-free computation (e.g., `matvec(v) = N * (P_det * v)`)
+- Efficient noise convolution via FFT or tensor product structure
+- Very large problems where the composed matrix P = N * P_det is too dense to store
+
+# Arguments
+- `matvec`: Function `v::Vector{Float64} -> P*v::Vector{Float64}`
+- `n`: Dimension of the vectors
+- `m`: Maximum power to compute norms for
+- `nrmM`: Operator norm ||P||_{ℓ^1} (max column 1-norm), default 1.0 for stochastic
+- `max_nnz_per_row`: Max nonzeros per row (for Higham γ_z), default n (dense)
+- `rigorous`: If true, track floating-point error bounds
+- `verbose`: If true, print progress
+
+# Returns
+- Vector of length m: norms[k] is a (rigorous) upper bound on ||P^k|_V||_1
+"""
+function norms_of_powers_matvec(matvec, n::Int, m::Int;
+                                nrmM::Float64=1.0,
+                                max_nnz_per_row::Int=n,
+                                rigorous::Bool=true,
+                                verbose::Bool=false)
+    T = Float64
+    u = eps(T) / 2
+
+    # Higham error constants
+    γz = zero(T)
+    normQ = zero(T)
+    δ = 0.0
+    if rigorous
+        γz = max_nnz_per_row * u / (1 - max_nnz_per_row * u)
+        normQ = nrmM
+    end
+
+    # Multithreaded: each thread accumulates its own C_k vector
+    nt = Threads.maxthreadid()
+    C_local = [zeros(T, m) for _ in 1:nt]
+
+    Threads.@threads :static for j in 2:n
+        tid = Threads.threadid()
+        C_t = C_local[tid]
+
+        v = zeros(T, n)
+        v[1] = 1.0
+        v[j] = -1.0
+
+        nrmv = 2.0
+        ε = 0.0
+
+        for k in 1:m
+            v = matvec(v)
+
+            if rigorous
+                ε = (γz * nrmM + δ) * nrmv + normQ * ε
+            end
+
+            nrmv = sum(abs, v)
+            C_t[k] = max(C_t[k], nrmv + ε)
+        end
+    end
+
+    # Reduce
     C = zeros(T, m)
     for t in 1:nt
         for k in 1:m

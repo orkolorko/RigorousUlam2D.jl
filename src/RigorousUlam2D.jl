@@ -34,7 +34,7 @@ export UlamPartition, partition_index, estimate_sparsity
 # Noise convolution
 export minkowski_sum, noisy_image
 export uniform_noise_box, anisotropic_noise_box
-export build_noise_convolution_operator
+export build_noise_convolution_operator, noise_matvec, build_grid_index_maps
 
 # Boundary conditions
 export apply_periodic_bc, wrap_to_torus
@@ -43,7 +43,7 @@ export noisy_image_periodic
 # Spectral analysis (Galatolo-Nisoli / ZZ paper)
 export operator_norm_on_V, operator_norm_on_V_power, find_contraction_power
 export rigorous_norm_on_V, rigorous_norm_on_V_power, higham_gamma
-export norms_of_powers_sparse, refine_norms_of_powers, norms_of_powers_from_coarser_grid
+export norms_of_powers_sparse, norms_of_powers_matvec, refine_norms_of_powers, norms_of_powers_from_coarser_grid
 export compute_stationary_density, spectral_gap
 export noise_variation, ulam_approximation_error, rigorous_error_bound
 

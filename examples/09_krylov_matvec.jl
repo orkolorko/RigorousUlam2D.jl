@@ -363,6 +363,97 @@ function departure_from_normality(A)
 end
 
 # ============================================================
+# Matrix-free resolvent certificate on a circle around λ₁ (draft §; ported from
+# RigorousPseudospectra bench/ulam_circle_near1.jl). Numerical (Float64) — the
+# harness, not the rigorous arithmetic. Needs BOTH the transfer P and its adjoint
+# P' (Koopman) as matvecs:
+#   capture λ₁ by rank-1 deflation  P22 = I − w₁w₁*  (w₁ = stationary measure),
+#   far block G22 = P22 P P22 applied matvec-only, σ_min(G22−zI) by Lanczos on
+#   M_z = P22 (G22−zI)*(G22−zI) P22, then assemble
+#       σ_min(P−zI) ≥ σ₁₁σ₂₂/(σ₁₁+σ₂₂+γ),  σ₁₁=|G11−z|, γ = capture coupling,
+#   and cover the whole circle by Lipschitz arc-covering (σ_min is 1-Lipschitz).
+# A positive whole-circle floor ⇒ exactly one eigenvalue (λ₁) inside ⇒ gap ≥ ρ.
+
+# Lanczos on the Hermitian PSD M_z (matvec-only); window = trailing-reorth width.
+function lanczos(Mz, N, kmax; window::Int = kmax, v0 = nothing)
+    Q = zeros(ComplexF64, N, kmax)
+    α = zeros(Float64, kmax); β = zeros(Float64, kmax)
+    q = v0 === nothing ? randn(ComplexF64, N) : copy(v0); q ./= norm(q)
+    qprev = zeros(ComplexF64, N); βprev = 0.0
+    kact = kmax
+    for k in 1:kmax
+        Q[:, k] = q
+        w = Mz(q)
+        a = real(dot(q, w)); α[k] = a
+        r = w - a * q - βprev * qprev
+        if window > 0
+            lo = max(1, k - window + 1)
+            r -= Q[:, lo:k] * (Q[:, lo:k]' * r)
+        end
+        b = norm(r)
+        (!isfinite(b) || b <= 1e-13 * abs(a)) && (kact = k; break)
+        qprev, βprev, q = q, b, r / b
+        β[k] = b
+    end
+    return Q[:, 1:kact], α[1:kact], β[1:kact], kact
+end
+
+# far floor σ_min(G22−zI) = √(θ_min(M_z)) at step k, certified down by the Ritz
+# residual inflated by the basis non-orthogonality 1/(1−‖R₂‖).
+function far_floor(Mz, Q, α, β, k)
+    Tk = SymTridiagonal(α[1:k], β[1:(k - 1)])
+    E = eigen(Tk)
+    i = argmin(E.values); θ = E.values[i]
+    y = Q[:, 1:k] * E.vectors[:, i]
+    ρ1 = norm(Mz(y) - θ * y)
+    r2 = opnorm(Q[:, 1:k]' * Q[:, 1:k] - I, 2)
+    β22 = r2 < 1 ? ρ1 / (1 - r2) : Inf
+    return sqrt(max(0.0, θ - β22)), θ, ρ1, r2
+end
+
+# Certify σ_min(P−zI) over the circle Γ = { c + ρ·e^{iθ} } via matvecs P, Pt=P'.
+function resolvent_circle(P, Pt, n, w1, c, ρ; nθ = 16, kmax = 80, Pmat = nothing,
+        nullshift = 10.0)
+    w1 = w1 / norm(w1)
+    P22(x) = x .- w1 .* (w1' * x)
+    G11 = w1' * P(w1)                                   # ≈ λ₁
+    γ = max(norm(P22(P(w1))), norm(P22(Pt(w1))))        # capture coupling (rank-1 ⇒ ‖·‖)
+    @printf("    G11 = w₁*Pw₁ = %.6f%+.6fi   coupling γ = %.3e\n", real(G11), imag(G11), γ)
+    floors = Float64[]
+    for t in 0:(nθ - 1)
+        z = c + ρ * cis(2π * t / nθ)
+        # M_z = P22 (G22−zI)*(G22−zI) P22, PLUS a shift `nullshift` on the deflated
+        # direction w₁ (M_z's structural kernel). The shift moves w₁'s eigenvalue from 0
+        # to `nullshift` (above ‖M_z‖) so leaked-w₁ rounding can't masquerade as σ_min=0.
+        Mz(x) = (v1 = P22(x); v2 = P(v1) .- z .* v1; v3 = P22(v2);
+        v4 = Pt(v3) .- conj(z) .* v3;
+        P22(v4) .+ nullshift .* (w1 .* (w1' * x)))
+        Q, α, β, k = lanczos(Mz, n, kmax; window = kmax, v0 = P22(randn(ComplexF64, n)))
+        fl, _, _, r2 = far_floor(Mz, Q, α, β, k)
+        σ11 = abs(G11 - z)
+        σA = (σ11 <= 0 || fl <= 0) ? 0.0 : σ11 * fl / (σ11 + fl + γ)
+        push!(floors, σA)
+        _, θraw, ρ1, _ = far_floor(Mz, Q, α, β, k)
+        tru = Pmat === nothing ? NaN : minimum(svdvals(Pmat - z * I))
+        # clean true far σ_min: P22(P−zI)P22 has ONE structural zero (the w₁ direction);
+        # the 2nd-smallest singular value is σ_min(M22−zI) on ran P22.
+        trufar = NaN
+        if Pmat !== nothing
+            P22m = I - w1 * w1'
+            trufar = sort(svdvals(P22m * (Pmat - z * I) * P22m))[2]
+        end
+        ok = isnan(tru) ? "" : (σA <= tru + 1e-9 ? "sound" : "VIOLATION")
+        @printf("    θ=%4.2fπ σ11=%.3e farσ22=%.3e [√θmin=%.3e ritzres=%.1e | TRUEfar=%.3e] → σ_min≥%.3e true=%.3e %s\n",
+            2t / nθ, σ11, fl, sqrt(max(θraw, 0.0)), ρ1, trufar, σA, tru, ok)
+    end
+    cover = 2ρ * sin(π / (2nθ))
+    circ = minimum(floors) - cover
+    @printf("    min over %d samples = %.4e ; Lipschitz cover = %.4e ; whole-circle floor = %.4e\n",
+        nθ, minimum(floors), cover, circ)
+    return (; floors, circ, ρ, c, γ, G11)
+end
+
+# ============================================================
 # Krylov study of one operator against a reference spectrum.
 # ============================================================
 function krylov_study(Aop, n, opname, λ_ref; m = 40, report_at = 5:5:40,
@@ -442,7 +533,7 @@ end
 # Per-map driver
 # ============================================================
 function run_map(F, domain, noise, label; target_ratio, periodic, enclosure_method,
-        m = 30, mref = 40, subdiv = 2, max_depth = 12)
+        m = 30, subdiv = 2, max_depth = 12, frac = 0.5, nθ = 16, kmax = 80)
     # choose depth so σ/δ ≈ target_ratio:  σ/δ = σ·2^depth / W  ⇒  depth = log2(ratio·W/σ)
     W = diam(domain[1]); σ = diam(noise[1]) / 2
     depth = clamp(Int(round(log2(target_ratio * W / σ))), 5, max_depth)
@@ -452,23 +543,40 @@ function run_map(F, domain, noise, label; target_ratio, periodic, enclosure_meth
         depth = depth, enclosure_method = enclosure_method,
         periodic = periodic, subdiv = subdiv)
 
-    # Reference spectrum: a long matrix-free Arnoldi on the transfer operator.
-    # mref = 0 skips it (halves cost on the big grids; the error columns then blank).
-    λ_ref = ComplexF64[]
-    if mref > 0
-        print("  Reference spectrum: matrix-free Arnoldi, m=$mref ... ")
-        tr = @elapsed (_, Href, ksref) = arnoldi(op.transfer, op.n, mref; v0 = randn(op.n))
-        θref, _ = ritz(Href, ksref)
-        λ_ref = θref[1:min(10, length(θref))]
-        @printf("ok (%d steps, %.1fs)\n", ksref, tr)
+    # Arnoldi on the TRANSFER operator only → stationary measure w₁ (the rank-1
+    # capture for the resolvent certificate) + the dominant cluster / upper-left
+    # block. The Koopman operator is NOT Arnoldi'd — it enters only as the adjoint
+    # matvec P' inside the resolvent certificate below.
+    stem = replace(lowercase(label), r"[^a-z0-9]+" => "_")
+    st = krylov_study(op.transfer, op.n, "transfer", ComplexF64[];
+        m = m, report_at = 5:5:m, tag = "$(stem)_transfer")
+    w1 = st.dom                       # stationary measure (λ₁ Ritz vector)
+    c = st.domλ                       # leading eigenvalue λ₁ (≈1)
+    # admissible radius from the NEAREST other Ritz value (so Γ encloses only λ₁)
+    others = st.θfinal[2:end]
+    gap = isempty(others) ? 0.0 : minimum(abs(c - θ) for θ in others)
+    ρ = frac * gap
+    @printf("  resolvent circle: centre λ₁ = %.5f%+.5fi, dist to λ₂ = %.5f, ρ = %.2f·dist = %.5f\n",
+        real(c), imag(c), gap, frac, ρ)
+
+    # optional true-σ_min check by materialising P via matvecs (small grids only)
+    Pmat = nothing
+    if op.n <= 1024
+        print("  materialising P (n≤1024) for true-σ_min check via $(op.n) matvecs... ")
+        Pmat = reduce(hcat, (op.transfer(ComplexF64.(1:op.n .== j)) for j in 1:op.n))
+        println("done")
     end
 
-    stem = replace(lowercase(label), r"[^a-z0-9]+" => "_")  # filename-safe map tag
-    st = krylov_study(op.transfer, op.n, "transfer", λ_ref;
-        m = m, report_at = 5:5:m, tag = "$(stem)_transfer")
-    sk = krylov_study(op.koopman, op.n, "koopman", λ_ref;
-        m = m, report_at = 5:5:m, tag = "$(stem)_koopman")
-    return (; op, λ_ref, transfer = st, koopman = sk, label)
+    println("  Certifying resolvent on circle around λ₁ (matvec P and adjoint P')...")
+    cert = resolvent_circle(op.transfer, op.koopman, op.n, w1, c, ρ;
+        nθ = nθ, kmax = kmax, Pmat = Pmat)
+    if cert.circ > 0
+        @printf("  ✓ σ_min(P−zI) ≥ %.4e on ALL of Γ ⇒ resolvent ≤ %.3e ⇒ gap ≥ ρ = %.5f\n",
+            cert.circ, 1 / cert.circ, ρ)
+    else
+        @printf("  ✗ whole-circle floor ≤ 0 (need larger nθ / smaller ρ / more Lanczos steps)\n")
+    end
+    return (; op, transfer = st, w1, c, ρ, cert, label)
 end
 
 # ============================================================
@@ -476,9 +584,11 @@ end
 # ============================================================
 RATIO  = get(ENV, "RATIO", "")  == "" ? 128 : parse(Int, ENV["RATIO"])
 MSTEPS = get(ENV, "MSTEPS", "") == "" ? 30  : parse(Int, ENV["MSTEPS"])
-MREF   = get(ENV, "MREF", "")   == "" ? 40  : parse(Int, ENV["MREF"])
 MAXD   = get(ENV, "MAXD", "")   == "" ? 12  : parse(Int, ENV["MAXD"])
 SUBDIV = get(ENV, "SUBDIV", "") == "" ? 2   : parse(Int, ENV["SUBDIV"])
+FRAC   = get(ENV, "FRAC", "")   == "" ? 0.25 : parse(Float64, ENV["FRAC"]) # circle radius / gap
+NTHETA = get(ENV, "NTHETA", "") == "" ? 48   : parse(Int, ENV["NTHETA"])   # circle samples
+KMAX   = get(ENV, "KMAX", "")   == "" ? 60   : parse(Int, ENV["KMAX"])     # Lanczos steps
 
 # Noise half-width σ = 0.1 (uniform_noise_box(0.1,2) ⇒ interval [-0.1,0.1]); each
 # map's depth is auto-chosen so the cell is ≈ noise/σ_ratio (σ/δ ≈ RATIO).
@@ -489,10 +599,10 @@ domain_lorenz = IntervalBox(interval(-0.5, 0.5), interval(-0.5, 0.5))
 results = Any[]
 push!(results, run_map(henon_rescaled, domain_henon, NOISE, "Hénon (periodic)";
     target_ratio = RATIO, periodic = true, enclosure_method = zeroth_order_enclosure,
-    m = MSTEPS, mref = MREF, subdiv = SUBDIV, max_depth = MAXD))
+    m = MSTEPS, subdiv = SUBDIV, max_depth = MAXD, frac = FRAC, nθ = NTHETA, kmax = KMAX))
 push!(results, run_map(contracting_lorenz, domain_lorenz, NOISE, "Contracting Lorenz";
     target_ratio = RATIO, periodic = false, enclosure_method = zeroth_order_enclosure,
-    m = MSTEPS, mref = MREF, subdiv = SUBDIV, max_depth = MAXD))
+    m = MSTEPS, subdiv = SUBDIV, max_depth = MAXD, frac = FRAC, nθ = NTHETA, kmax = KMAX))
 
 # ============================================================
 # Visualisation: stationary measure (transfer λ₁ Ritz vector) + spectrum
@@ -526,19 +636,17 @@ for (row, R) in enumerate(results)
     hm = heatmap!(ax, xs, ys, permutedims(D); colormap = :viridis)
     Colorbar(fig[row, 2], hm, label = "μ (mass / cell)")
 
-    # spectrum panel
-    ax2 = Axis(fig[row, 3], title = "$(R.label): Ritz spectrum",
+    # spectrum panel: transfer Ritz values + the certified circle Γ around λ₁
+    ax2 = Axis(fig[row, 3], title = "$(R.label): spectrum + certified circle Γ",
         xlabel = "Re", ylabel = "Im", aspect = DataAspect())
     θu = Float64.(range(0, 2π, length = 200))
-    lines!(ax2, cos.(θu), sin.(θu), color = (:gray, 0.4))
-    if !isempty(R.λ_ref)
-        scatter!(ax2, real.(R.λ_ref), imag.(R.λ_ref), color = :black,
-            marker = :circle, markersize = 13, label = "ref")
-    end
+    lines!(ax2, cos.(θu), sin.(θu), color = (:gray, 0.4))                  # unit circle
     scatter!(ax2, real.(R.transfer.θfinal), imag.(R.transfer.θfinal),
         color = :dodgerblue, marker = :xcross, markersize = 11, label = "transfer Ritz")
-    scatter!(ax2, real.(R.koopman.θfinal), imag.(R.koopman.θfinal),
-        color = :crimson, marker = :cross, markersize = 11, label = "koopman Ritz")
+    Γc = R.c
+    lines!(ax2, real(Γc) .+ R.ρ .* cos.(θu), imag(Γc) .+ R.ρ .* sin.(θu),
+        color = R.cert.circ > 0 ? :seagreen : :red, linewidth = 2,
+        label = R.cert.circ > 0 ? "Γ (gap ≥ ρ ✓)" : "Γ (not certified)")
     axislegend(ax2, position = :lb, framevisible = false)
 end
 out = joinpath(@__DIR__, "09_krylov_matvec_output.png")
@@ -549,21 +657,19 @@ println("Saved ", out)
 # Summary
 # ============================================================
 println("\n" * "="^70)
-println("SUMMARY (matrix-free Krylov, σ/δ ≈ $RATIO, m = $MSTEPS)")
+println("SUMMARY (matrix-free resolvent certificate around λ₁, σ/δ ≈ $RATIO)")
 println("="^70)
-@printf("%-24s %-7s %-9s %-12s %-12s\n",
-    "map / operator", "steps", "dep(Hₘ)", "|θ₁−λ₁|", "gap err θ₂")
-println("-"^70)
+@printf("%-22s %-10s %-9s %-10s %-12s %-10s\n",
+    "map", "λ₁", "ρ (radius)", "Γ floor", "resolvent≤", "gap ≥ ρ?")
+println("-"^74)
 for R in results
-    λ1 = isempty(R.λ_ref) ? NaN : abs(sort(R.λ_ref, by = abs, rev = true)[1])
-    for s in (R.transfer, R.koopman)
-        dep = departure_from_normality(s.H[1:s.ks, 1:s.ks])
-        e1 = isnan(λ1) ? NaN : abs(abs(s.θfinal[1]) - λ1)
-        e2 = isempty(s.conv) ? NaN : s.conv[end]
-        @printf("%-24s %-7d %-9.2e %-12.2e %-12.2e   block:%s\n",
-            "$(R.label) / $(s.opname)", s.ks, dep, e1, e2, basename(s.savepath))
-    end
+    c = R.cert
+    res = c.circ > 0 ? @sprintf("%.3e", 1 / c.circ) : "∞"
+    ok = c.circ > 0 ? "✓ $(round(R.ρ, sigdigits=4))" : "✗"
+    @printf("%-22s %-10.5f %-9.5f %-10.3e %-12s %-10s\n",
+        R.label, real(R.c), R.ρ, c.circ, res, ok)
 end
-println("\nNote: transfer and Koopman share the spectrum but the operator is non-normal")
-println("(dep(Hₘ) ≫ 0) ⇒ Ritz convergence is governed by pseudospectra, not eigenvalues;")
-println("the two adjoint Krylov runs need not converge at the same rate.")
+println("\nThe resolvent certificate uses BOTH matvecs: P (transfer) and P' (Koopman,")
+println("the adjoint) inside M_z = P22(G22−zI)*(G22−zI)P22. A positive whole-circle")
+println("floor ⇒ exactly one eigenvalue (λ₁) inside Γ ⇒ certified spectral gap ≥ ρ.")
+println("The saved upper-left blocks (krylov_block_*.jls) feed the rigorous step.")

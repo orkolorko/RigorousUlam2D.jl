@@ -32,6 +32,7 @@ using IntervalArithmetic, IntervalBoxes
 using LinearAlgebra, SparseArrays
 using Printf
 using Random
+using Serialization
 using CairoMakie
 
 Random.seed!(1234)
@@ -227,10 +228,15 @@ function compute_colsum(ctx)
 end
 
 # P_det · v  by forward SCATTER (matrix-free, column-normalised by colsum).
+# Per-thread accumulators are preallocated once in `ctx.scratch` and reused (zeroed)
+# every call — avoids allocating/GC-ing nt·n complex buffers per matvec (multi-GB
+# churn at n ~ 1e7). Zero entries of v skip the (expensive) image recomputation.
 function det_transfer(ctx, v::AbstractVector{T}) where {T}
     n = ctx.partition.n_boxes
-    nt = Threads.maxthreadid()
-    buf = [zeros(T, n) for _ in 1:nt]
+    buf = ctx.scratch
+    for b in buf
+        fill!(b, zero(T))
+    end
     Threads.@threads :static for j in 1:n
         cj = ctx.colsum[j]
         cj <= 0 && continue
@@ -241,7 +247,11 @@ function det_transfer(ctx, v::AbstractVector{T}) where {T}
             b[k] += w * cw
         end
     end
-    return reduce(+, buf)
+    out = copy(buf[1])                  # single allocation for the result
+    @inbounds for t in 2:length(buf)
+        @. out += buf[t]                # in-place reduction (no per-step alloc)
+    end
+    return out
 end
 
 # P_detᵀ · u  by GATHER (the transpose: same column geometry, accumulated into source).
@@ -274,11 +284,13 @@ function build_operators(F, domain, noise, label;
     n == nx * ny || error("box count $n ≠ $(nx*ny)")
     b2g, g2b = build_grid_index_maps(partition, (nx, ny))
 
+    nt = Threads.maxthreadid()
     ctx = (; F, partition, g2b, b2g,
         x0 = inf(domain[1]), y0 = inf(domain[2]),
         dx = diam(domain[1]) / nx, dy = diam(domain[2]) / ny,
         nx, ny, subdiv, enclosure_method, periodic,
-        colsum = zeros(n))
+        colsum = zeros(n),
+        scratch = [Vector{ComplexF64}(undef, n) for _ in 1:nt])   # reused scatter buffers
 
     println("\n" * "="^70)
     @printf("%s  —  depth %d, %d×%d = %d boxes, periodic=%s\n",
@@ -353,14 +365,16 @@ end
 # ============================================================
 # Krylov study of one operator against a reference spectrum.
 # ============================================================
-function krylov_study(Aop, n, opname, λ_ref; m = 40, report_at = 5:5:40)
+function krylov_study(Aop, n, opname, λ_ref; m = 40, report_at = 5:5:40,
+        tag = "op", ksmall = 8)
     t = @elapsed (V, H, ks) = arnoldi(Aop, n, m; v0 = randn(n))
     @printf("\n  [%s]  Arnoldi: %d steps (%.1fs)", opname, ks, t)
     ks < m && @printf("  (happy breakdown at k=%d)", ks)
     println()
 
     ref = sort(λ_ref, by = abs, rev = true)
-    λ1_ref = ref[1]
+    have_ref = !isempty(ref)
+    λ1_ref = have_ref ? ref[1] : ComplexF64(NaN)
     λ2_ref = length(ref) >= 2 ? ref[2] : ComplexF64(NaN)
     # subdominant references = everything except the λ₁ branch (handles conjugate
     # pairs: θ₂ may converge to λ₂ OR its conjugate — both are "the gap").
@@ -375,17 +389,53 @@ function krylov_study(Aop, n, opname, λ_ref; m = 40, report_at = 5:5:40)
         θ, res = ritz(H, k)
         dep = departure_from_normality(H[1:k, 1:k])
         e2 = length(θ) >= 2 ? nearest_sub(θ[2]) : NaN
-        push!(conv, e2)
+        have_ref && push!(conv, e2)
         @printf("    %-4d %-14s %-22s %-10.2e %-10.2e %-9.2e\n",
             k, @sprintf("%.6f", abs(θ[1])),
             length(θ) >= 2 ? @sprintf("%.4f%+.4fi", real(θ[2]), imag(θ[2])) : "—",
             res[1], length(res) >= 2 ? res[2] : NaN, dep)
     end
-    @printf("    reference:  |λ₁| = %.6f,  λ₂ = %.4f%+.4fi  (gap 1−|λ₂| = %.4f)\n",
-        abs(λ1_ref), real(λ2_ref), imag(λ2_ref), 1 - abs(λ2_ref))
+    if have_ref
+        @printf("    reference:  |λ₁| = %.6f,  λ₂ = %.4f%+.4fi  (gap 1−|λ₂| = %.4f)\n",
+            abs(λ1_ref), real(λ2_ref), imag(λ2_ref), 1 - abs(λ2_ref))
+    end
 
     θfinal, _ = ritz(H, ks)
-    return (; H, ks, θfinal, ks_report, conv, opname)
+
+    # --- save the small-part Ritz data: the candidate UPPER-LEFT BLOCK for the
+    # certified Krylov–Rump–Miyajima step (draft §4). After ks Arnoldi steps,
+    #     A·V_ks = V_ks·H_ks + v_{ks+1}·(h_{ks+1,ks} eₖᵀ),                  (Arnoldi)
+    # so the Rayleigh quotient H_ks (ks×ks) is the upper-left block whose
+    # eigenvalues are the Ritz values. For the ksmall dominant Ritz pairs
+    # (Y the eigenvectors of H_ks) the Ritz vectors are X = V_ks·Y, and the
+    # exact (numerical) residual of the invariant-subspace relation is
+    #     A·X − X·diag(Θ) = v_{ks+1} · rrow,   rrow = h_{ks+1,ks}·Y[ks,·],
+    # i.e. rank-1 in the single Krylov direction v_{ks+1} (‖v_{ks+1}‖=1).
+    # The certifier (BallArithmetic) re-derives R₂/β/κ on H_ks and inflates the
+    # Gershgorin discs by ‖rrow‖ to enclose σ(A) near this subspace.
+    Fh = eigen(H[1:ks, 1:ks])
+    ord = sortperm(abs.(Fh.values), rev = true)
+    ksm = min(ksmall, ks)
+    sel = ord[1:ksm]
+    Hks = H[1:ks, 1:ks]
+    Ysel = Fh.vectors[:, sel]                 # ks × ksm  (selected Ritz eigvectors of H_ks)
+    Θsel = Fh.values[sel]                     # ksm Ritz values (the small/dominant part)
+    Xsmall = V[:, 1:ks] * Ysel                # n × ksm   Ritz vectors (approx. invariant subspace)
+    rrow = H[ks + 1, ks] .* Ysel[ks, :]       # ksm residual coupling scalars
+    vlast = V[:, ks + 1]                      # residual direction (‖·‖ = 1)
+    XtX = Xsmall' * Xsmall                    # ksm × ksm Gram (subspace conditioning, κ input)
+    savepath = joinpath(@__DIR__, "krylov_block_$(tag).jls")
+    serialize(savepath,
+        (; tag, opname, ks, ksm, Hks, Ysel, Θsel, sel, Xsmall, rrow, vlast, XtX,
+            ritz_res = abs.(rrow)))
+    @printf("    saved upper-left block (%d×%d) + %d Ritz vectors → %s\n",
+        ks, ks, ksm, basename(savepath))
+
+    # dominant Ritz vector (largest modulus): for the transfer operator this is the
+    # stationary measure (Perron eigenvector, λ₁≈1).
+    dom = Xsmall[:, 1]
+    domλ = Θsel[1]
+    return (; H, ks, θfinal, ks_report, conv, opname, savepath, ksm, dom, domλ)
 end
 
 # ============================================================
@@ -403,14 +453,21 @@ function run_map(F, domain, noise, label; target_ratio, periodic, enclosure_meth
         periodic = periodic, subdiv = subdiv)
 
     # Reference spectrum: a long matrix-free Arnoldi on the transfer operator.
-    print("  Reference spectrum: matrix-free Arnoldi, m=$mref ... ")
-    tr = @elapsed (_, Href, ksref) = arnoldi(op.transfer, op.n, mref; v0 = randn(op.n))
-    θref, _ = ritz(Href, ksref)
-    λ_ref = θref[1:min(10, length(θref))]
-    @printf("ok (%d steps, %.1fs)\n", ksref, tr)
+    # mref = 0 skips it (halves cost on the big grids; the error columns then blank).
+    λ_ref = ComplexF64[]
+    if mref > 0
+        print("  Reference spectrum: matrix-free Arnoldi, m=$mref ... ")
+        tr = @elapsed (_, Href, ksref) = arnoldi(op.transfer, op.n, mref; v0 = randn(op.n))
+        θref, _ = ritz(Href, ksref)
+        λ_ref = θref[1:min(10, length(θref))]
+        @printf("ok (%d steps, %.1fs)\n", ksref, tr)
+    end
 
-    st = krylov_study(op.transfer, op.n, "transfer", λ_ref; m = m, report_at = 5:5:m)
-    sk = krylov_study(op.koopman,  op.n, "koopman",  λ_ref; m = m, report_at = 5:5:m)
+    stem = replace(lowercase(label), r"[^a-z0-9]+" => "_")  # filename-safe map tag
+    st = krylov_study(op.transfer, op.n, "transfer", λ_ref;
+        m = m, report_at = 5:5:m, tag = "$(stem)_transfer")
+    sk = krylov_study(op.koopman, op.n, "koopman", λ_ref;
+        m = m, report_at = 5:5:m, tag = "$(stem)_koopman")
     return (; op, λ_ref, transfer = st, koopman = sk, label)
 end
 
@@ -438,34 +495,51 @@ push!(results, run_map(contracting_lorenz, domain_lorenz, NOISE, "Contracting Lo
     m = MSTEPS, mref = MREF, subdiv = SUBDIV, max_depth = MAXD))
 
 # ============================================================
-# Visualisation: Ritz vs reference (complex plane) + λ₂ convergence
+# Visualisation: stationary measure (transfer λ₁ Ritz vector) + spectrum
 # ============================================================
 println("\nCreating visualisation...")
-fig = Figure(size = (1300, 900))
+
+# Reshape a box-ordered vector onto the (ny × nx) grid for plotting.
+function to_grid(v, op)
+    D = fill(NaN, op.ny, op.nx)
+    for k in 1:op.n
+        ix, iy = op.ctx.b2g[k]
+        D[iy, ix] = v[k]
+    end
+    return D
+end
+
+fig = Figure(size = (1250, 520 * length(results)))
 for (row, R) in enumerate(results)
-    ax = Axis(fig[row, 1], title = "$(R.label): spectrum",
+    op = R.op
+    # invariant density = |dominant transfer Ritz vector| (Perron eigenvector), normalised
+    μ = abs.(R.transfer.dom)
+    μ ./= sum(μ)
+    D = to_grid(μ, op)
+    dom = op.partition.domain
+    xs = range(inf(dom[1]), sup(dom[1]); length = op.nx)
+    ys = range(inf(dom[2]), sup(dom[2]); length = op.ny)
+
+    ax = Axis(fig[row, 1], aspect = DataAspect(),
+        title = "$(R.label): stationary measure  (λ₁ = $(round(real(R.transfer.domλ), digits=4)), $(op.n) cells)",
+        xlabel = "x", ylabel = "y")
+    hm = heatmap!(ax, xs, ys, permutedims(D); colormap = :viridis)
+    Colorbar(fig[row, 2], hm, label = "μ (mass / cell)")
+
+    # spectrum panel
+    ax2 = Axis(fig[row, 3], title = "$(R.label): Ritz spectrum",
         xlabel = "Re", ylabel = "Im", aspect = DataAspect())
     θu = Float64.(range(0, 2π, length = 200))
-    lines!(ax, cos.(θu), sin.(θu), color = (:gray, 0.4))
-    scatter!(ax, real.(R.λ_ref), imag.(R.λ_ref), color = :black,
-        marker = :circle, markersize = 14, label = "ref (long Arnoldi)")
-    scatter!(ax, real.(R.transfer.θfinal), imag.(R.transfer.θfinal),
+    lines!(ax2, cos.(θu), sin.(θu), color = (:gray, 0.4))
+    if !isempty(R.λ_ref)
+        scatter!(ax2, real.(R.λ_ref), imag.(R.λ_ref), color = :black,
+            marker = :circle, markersize = 13, label = "ref")
+    end
+    scatter!(ax2, real.(R.transfer.θfinal), imag.(R.transfer.θfinal),
         color = :dodgerblue, marker = :xcross, markersize = 11, label = "transfer Ritz")
-    scatter!(ax, real.(R.koopman.θfinal), imag.(R.koopman.θfinal),
+    scatter!(ax2, real.(R.koopman.θfinal), imag.(R.koopman.θfinal),
         color = :crimson, marker = :cross, markersize = 11, label = "koopman Ritz")
-    axislegend(ax, position = :lb, framevisible = false)
-
-    ax2 = Axis(fig[row, 2], title = "$(R.label): |θ₂ − λ₂| vs Arnoldi step",
-        xlabel = "Arnoldi step k", ylabel = "error", yscale = log10)
-    if !isempty(R.transfer.conv)
-        scatterlines!(ax2, R.transfer.ks_report, max.(R.transfer.conv, 1e-16),
-            color = :dodgerblue, label = "transfer")
-    end
-    if !isempty(R.koopman.conv)
-        scatterlines!(ax2, R.koopman.ks_report, max.(R.koopman.conv, 1e-16),
-            color = :crimson, label = "koopman")
-    end
-    axislegend(ax2, position = :rt, framevisible = false)
+    axislegend(ax2, position = :lb, framevisible = false)
 end
 out = joinpath(@__DIR__, "09_krylov_matvec_output.png")
 save(out, fig)
@@ -481,13 +555,13 @@ println("="^70)
     "map / operator", "steps", "dep(Hₘ)", "|θ₁−λ₁|", "gap err θ₂")
 println("-"^70)
 for R in results
-    λ1 = abs(sort(R.λ_ref, by = abs, rev = true)[1])
+    λ1 = isempty(R.λ_ref) ? NaN : abs(sort(R.λ_ref, by = abs, rev = true)[1])
     for s in (R.transfer, R.koopman)
         dep = departure_from_normality(s.H[1:s.ks, 1:s.ks])
-        e1 = abs(abs(s.θfinal[1]) - λ1)
+        e1 = isnan(λ1) ? NaN : abs(abs(s.θfinal[1]) - λ1)
         e2 = isempty(s.conv) ? NaN : s.conv[end]
-        @printf("%-24s %-7d %-9.2e %-12.2e %-12.2e\n",
-            "$(R.label) / $(s.opname)", s.ks, dep, e1, e2)
+        @printf("%-24s %-7d %-9.2e %-12.2e %-12.2e   block:%s\n",
+            "$(R.label) / $(s.opname)", s.ks, dep, e1, e2, basename(s.savepath))
     end
 end
 println("\nNote: transfer and Koopman share the spectrum but the operator is non-normal")

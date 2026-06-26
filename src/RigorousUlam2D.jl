@@ -15,6 +15,9 @@ include("sparse_ulam.jl")
 include("noise_convolution.jl")
 include("boundary_conditions.jl")
 include("spectral_analysis.jl")
+include("transfer_matvec.jl")
+include("haar_wavelet.jl")
+include("schur_norm_bounds.jl")
 
 # Re-export from submodules
 # Partition utilities
@@ -46,6 +49,14 @@ export rigorous_norm_on_V, rigorous_norm_on_V_power, higham_gamma
 export norms_of_powers_sparse, norms_of_powers_matvec, refine_norms_of_powers, norms_of_powers_from_coarser_grid
 export compute_stationary_density, spectral_gap
 export noise_variation, ulam_approximation_error, rigorous_error_bound
+
+# Haar wavelet
+export HaarBasis2D, haar_forward!, haar_inverse!, haar_forward, haar_inverse
+export wavelet_matvec, wavelet_scale_ranges
+
+# Schur complement norm bounds
+export wavelet_operator_blocks, noise_attenuation_bound
+export schur_norms_of_powers, wavelet_rigorous_error_bound
 
 """
     zeroth_order_enclosure(F, box::IntervalBox)

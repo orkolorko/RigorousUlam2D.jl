@@ -4,11 +4,11 @@
 # builds the operator and writes a per-map LaTeX table.
 #
 # REMARK. This certifies each leading eigenvalue ISOLATED (a small circle around it has no other
-# eigenvalue). The FULL SPECTRAL GAP — λ₁ separated from the entire rest of σ(L) — additionally
-# needs σ_min(L−zI)>0 certified on ONE circle enclosing ALL the other eigenvalues, i.e.
-# σ_min(z−G₂₂) on a contour enclosing the whole far spectrum (the Nisoli Gauss certification).
-# That is the same far-block primitive run on the bulk-enclosing circle (cf. example 11), and is
-# the binding step for strongly non-normal operators.
+# eigenvalue). The SPECTRAL GAP needs one more step: with λ₁,…,λ_k the certified leading
+# eigenvalues, deflate all k and certify σ_min(z−G₂₂)>0 on a circle enclosing the REMAINING
+# spectrum λ_{k+1},… (the Nisoli Gauss certification — resolvent bound on a contour enclosing
+# σ(G₂₂)). Same far-block primitive run ONCE on that bulk-enclosing circle (cf. example 11); the
+# binding step for strongly non-normal operators.
 #
 #   julia --project=examples --threads=auto examples/12_eigenvalue_certificates.jl
 #   CACHED=1 ...   # cached P_det spmv (fast; recompute matvec is the scaling path)

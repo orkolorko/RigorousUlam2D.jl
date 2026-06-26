@@ -374,41 +374,59 @@ end
 #   and cover the whole circle by Lipschitz arc-covering (σ_min is 1-Lipschitz).
 # A positive whole-circle floor ⇒ exactly one eigenvalue (λ₁) inside ⇒ gap ≥ ρ.
 
-# Lanczos on the Hermitian PSD M_z (matvec-only); window = trailing-reorth width.
-function lanczos(Mz, N, kmax; window::Int = kmax, v0 = nothing)
-    Q = zeros(ComplexF64, N, kmax)
+# STORAGE-FREE Lanczos on the Hermitian M_z (matvec-only): keeps only q/qprev (O(n)),
+# NO basis stored. Streams the tridiagonal (α,β), the realized local rounding defect
+# norms ‖f_k‖, and the adjacent Gram seeds |⟨q_k,q_{k+1}⟩| — all the certifier needs.
+function lanczos_streamed(Mz, N, kmax; v0 = nothing)
     α = zeros(Float64, kmax); β = zeros(Float64, kmax)
+    fn = zeros(Float64, kmax); sdot = zeros(Float64, kmax)
     q = v0 === nothing ? randn(ComplexF64, N) : copy(v0); q ./= norm(q)
     qprev = zeros(ComplexF64, N); βprev = 0.0
     kact = kmax
     for k in 1:kmax
-        Q[:, k] = q
         w = Mz(q)
         a = real(dot(q, w)); α[k] = a
-        r = w - a * q - βprev * qprev
-        if window > 0
-            lo = max(1, k - window + 1)
-            r -= Q[:, lo:k] * (Q[:, lo:k]' * r)
-        end
-        b = norm(r)
-        (!isfinite(b) || b <= 1e-13 * abs(a)) && (kact = k; break)
-        qprev, βprev, q = q, b, r / b
-        β[k] = b
+        r = w .- a .* q .- βprev .* qprev
+        b = norm(r); β[k] = b
+        (!isfinite(b) || b <= eps(Float64) * abs(a)) && (kact = k; break)
+        qnext = r ./ b
+        combo = a .* q .+ βprev .* qprev .+ b .* qnext
+        fn[k] = norm(combo .- w)            # realized local defect ‖f_k‖ (storage-free)
+        sdot[k] = abs(dot(q, qnext))        # adjacent Gram seed |⟨q_k,q_{k+1}⟩|
+        qprev, βprev, q = q, b, qnext
     end
-    return Q[:, 1:kact], α[1:kact], β[1:kact], kact
+    return α[1:kact], β[1:kact], fn[1:kact], sdot[1:kact], kact
 end
 
-# far floor σ_min(G22−zI) = √(θ_min(M_z)) at step k, certified down by the Ritz
-# residual inflated by the basis non-orthogonality 1/(1−‖R₂‖).
-function far_floor(Mz, Q, α, β, k)
+# Streamed Paige bound on ‖R₂(k)‖ = ‖Q*Q − I‖₂ (draft eq. paige): propagate W ≥ |ω_ij|
+# one anti-diagonal at a time from the scalars only — no stored basis, no inner products.
+function paige_R2(α, β, fn, sdot, k)
+    W = zeros(Float64, k, k)
+    for i in 1:(k - 1)
+        W[i, i + 1] = W[i + 1, i] = sdot[i]           # seed: |⟨q_i,q_{i+1}⟩|  (W[i,i]=|‖q‖²−1|≈0)
+    end
+    ξ(i, j) = fn[i] + fn[j]                            # ≥ |ξ_ij| (‖q‖=1, Cauchy–Schwarz)
+    for j in 2:(k - 1)
+        for i in (j - 1):-1:1
+            num = β[i] * W[i + 1, j] + abs(α[i] - α[j]) * W[i, j] +
+                  (i > 1 ? β[i - 1] * W[i - 1, j] : 0.0) + β[j - 1] * W[i, j - 1] + ξ(i, j)
+            W[i, j + 1] = W[j + 1, i] = num / β[j]
+        end
+    end
+    return maximum(sum(@view W[i, 1:k]) for i in 1:k)  # ‖W‖₁ = ‖W‖∞ ≥ ‖R₂‖₂
+end
+
+# far floor σ_min(G22−zI) = √(max(0, θ_min − β₂₂)) from the tridiagonal + streamed defects
+# (draft Prop. matvec-floor). θ_min = λ_min(T_k); β₂₂ = ‖R₁‖/(1−‖R₂‖); ‖R₂‖ from Paige.
+function floor_streamed(α, β, fn, sdot, k)
     Tk = SymTridiagonal(α[1:k], β[1:(k - 1)])
-    E = eigen(Tk)
-    i = argmin(E.values); θ = E.values[i]
-    y = Q[:, 1:k] * E.vectors[:, i]
-    ρ1 = norm(Mz(y) - θ * y)
-    r2 = opnorm(Q[:, 1:k]' * Q[:, 1:k] - I, 2)
-    β22 = r2 < 1 ? ρ1 / (1 - r2) : Inf
-    return sqrt(max(0.0, θ - β22)), θ, ρ1, r2
+    E = eigen(Tk); θmin = minimum(E.values); S = E.vectors
+    rho = paige_R2(α, β, fn, sdot, k)
+    lastcomp = β[k] * abs.(S[k, :])                          # β_k (s_i)_k  (Ritz residual tail)
+    fcontrib = [sum(abs.(S[1:k, i]) .* fn[1:k]) for i in 1:k] # accumulated local defects F_k s_i
+    ρ1 = sqrt(sum((lastcomp .+ fcontrib) .^ 2))              # ≥ ‖R₁‖₂ (column Frobenius)
+    β22 = rho < 1 ? ρ1 / (1 - rho) : Inf
+    return sqrt(max(0.0, θmin - β22)), θmin, ρ1, rho
 end
 
 # Certify σ_min(P−zI) over the circle Γ = { c + ρ·e^{iθ} } via matvecs P, Pt=P'.
@@ -428,23 +446,23 @@ function resolvent_circle(P, Pt, n, w1, c, ρ; nθ = 16, kmax = 80, Pmat = nothi
         Mz(x) = (v1 = P22(x); v2 = P(v1) .- z .* v1; v3 = P22(v2);
         v4 = Pt(v3) .- conj(z) .* v3;
         P22(v4) .+ nullshift .* (w1 .* (w1' * x)))
-        Q, α, β, k = lanczos(Mz, n, kmax; window = kmax, v0 = P22(randn(ComplexF64, n)))
-        fl, _, _, r2 = far_floor(Mz, Q, α, β, k)
+        # STORAGE-FREE: stream (α,β,‖f‖,sdot); bound ‖R₂‖ and the floor from scalars only.
+        α, β, fn, sdot, k = lanczos_streamed(Mz, n, kmax; v0 = P22(randn(ComplexF64, n)))
+        fl, θraw, ρ1, r2 = floor_streamed(α, β, fn, sdot, k)
         σ11 = abs(G11 - z)
-        σA = (σ11 <= 0 || fl <= 0) ? 0.0 : σ11 * fl / (σ11 + fl + γ)
+        σA = (σ11 <= 0 || fl <= 0 || r2 >= 1) ? 0.0 : σ11 * fl / (σ11 + fl + γ)
         push!(floors, σA)
-        _, θraw, ρ1, _ = far_floor(Mz, Q, α, β, k)
         tru = Pmat === nothing ? NaN : minimum(svdvals(Pmat - z * I))
-        # clean true far σ_min: P22(P−zI)P22 has ONE structural zero (the w₁ direction);
-        # the 2nd-smallest singular value is σ_min(M22−zI) on ran P22.
+        # clean true far σ_min (small-n validation): P22(P−zI)P22 has one structural zero
+        # (the w₁ direction); the 2nd-smallest singular value is σ_min(M22−zI) on ran P22.
         trufar = NaN
         if Pmat !== nothing
             P22m = I - w1 * w1'
             trufar = sort(svdvals(P22m * (Pmat - z * I) * P22m))[2]
         end
         ok = isnan(tru) ? "" : (σA <= tru + 1e-9 ? "sound" : "VIOLATION")
-        @printf("    θ=%4.2fπ σ11=%.3e farσ22=%.3e [√θmin=%.3e ritzres=%.1e | TRUEfar=%.3e] → σ_min≥%.3e true=%.3e %s\n",
-            2t / nθ, σ11, fl, sqrt(max(θraw, 0.0)), ρ1, trufar, σA, tru, ok)
+        @printf("    θ=%4.2fπ σ11=%.3e farσ22=%.3e [√θmin=%.3e ‖R₂‖=%.1e | TRUEfar=%.3e] → σ_min≥%.3e true=%.3e %s\n",
+            2t / nθ, σ11, fl, sqrt(max(θraw, 0.0)), r2, trufar, σA, tru, ok)
     end
     cover = 2ρ * sin(π / (2nθ))
     circ = minimum(floors) - cover

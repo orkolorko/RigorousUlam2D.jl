@@ -227,85 +227,18 @@ function arnoldi_block(Lmul, n, N; v0 = randn(ComplexF64, n))
     return H[1:N, 1:N], V[:, 1:N], abs(H[N + 1, N]), N
 end
 
-# ---------------------------------------------------------------- certified matvec Lanczos
-# (generic precision; selective reorth + online Paige ‖R₂‖; geometric-mean R₁ with the
-#  orthogonality-killed β_k term — the working far-block floor.)
-function lanczos_pro(Mz, n, kmax; v0)
-    T = eltype(v0); R = real(T)
-    u = eps(R); trig = sqrt(u); keepθ = u^(R(3) / 4); reset = 2u
-    α = zeros(R, kmax); β = zeros(R, kmax); fn = zeros(R, kmax)
-    W = zeros(R, kmax + 1, kmax + 1); cols = Vector{Vector{T}}(undef, kmax)
-    q = copy(v0); q ./= norm(q); qprev = zeros(T, n); βprev = zero(R); kact = kmax
-    for k in 1:kmax
-        cols[k] = q; W[k, k] = u
-        w = Mz(q); a = real(dot(q, w)); α[k] = a
-        r = w .- a .* q .- βprev .* qprev
-        if k == 1
-            W[1, 2] = W[2, 1] = u
-        else
-            W[k, k + 1] = W[k + 1, k] = u
-            ξ = u * (abs(α[k]) + norm(r))
-            for i in (k - 1):-1:1
-                num = β[i] * W[i + 1, k] + abs(α[i] - α[k]) * W[i, k] +
-                      (i > 1 ? β[i - 1] * W[i - 1, k] : zero(R)) +
-                      β[k - 1] * W[i, k - 1] + ξ + u * (abs(α[i]) + β[i])
-                W[i, k + 1] = W[k + 1, i] = num / max(norm(r), u)
-            end
-            if maximum(@view W[1:k, k + 1]) > trig
-                idx = findall(i -> W[i, k + 1] > keepθ, 1:k)
-                for _ in 1:2, i in idx
-                    r .-= cols[i] .* (cols[i]' * r)
-                end
-                for i in idx
-                    W[i, k + 1] = W[k + 1, i] = reset
-                end
-            end
-        end
-        b = norm(r); β[k] = b
-        (!isfinite(b) || b <= u * abs(a)) && (kact = k; break)
-        qnext = r ./ b
-        fn[k] = norm(a .* q .+ βprev .* qprev .+ b .* qnext .- w)
-        qprev, βprev, q = q, b, qnext
-    end
-    R2 = maximum(sum(@view W[i, 1:kact]) for i in 1:kact)
-    return α[1:kact], β[1:kact], fn[1:kact], W[1:kact, kact + 1], R2, kact
-end
+# ---------------------------------------------------------------- certified far-block Lanczos
+# NOT duplicated here: the selective-reorth far-block Lanczos, the geometric-mean R₁ floor, and
+# the Krylov–Rump–Miyajima decoupling now live (generic-precision) in RigorousPseudospectra —
+#   far_block_sigma_min(Amul, Aadj, n, W, z; prec)   # σ_min(G₂₂−zI) by one matvec Lanczos
+#   certify_gap_on_circle(Amul, Aadj, n, W, c, ρ; prec, auto_radius)
+#   certify_leading_eigs(Amul, Aadj, n; nblock, neig, refine, prec)
+# The examples pass this file's matvec operators (Lmul/Ladj) straight to those.
 
-function far_floor(α, β, fn, wlast, R2, k)
-    kk = k
-    for j in 1:k
-        (!isfinite(α[j]) || (j < k && !isfinite(β[j]))) && (kk = j - 1; break)
-    end
-    kk < 2 && return 0.0
-    θmin = minimum(eigvals(SymTridiagonal(Float64.(α[1:kk]), Float64.(β[1:(kk - 1)]))))
-    fns = @view fn[1:kk]; wl = @view wlast[1:kk]
-    R1_1 = max(β[kk] * sum(wl) + kk * fns[kk], kk * maximum(fns))   # ‖R₁‖₁ (max col sum)
-    R1_inf = β[kk] * maximum(wl) + sum(fns)                         # ‖R₁‖∞ (max row sum)
-    β22 = R2 < 1 ? Float64(sqrt(R1_1 * R1_inf) / (1 - R2)) : Inf
-    return sqrt(max(0.0, θmin - β22))
-end
-
-# σ_min(G₂₂ − zI), G₂₂ = P_W L P_W (deflate the safe Krylov frame W), by ONE matvec Lanczos
-# at full basis. `Lmul`,`Ladj` are the matvec closures; `W` is n×m (the safe frame).
-function far_sigma_min(Lmul, Ladj, W, z, n, ::Type{T}; nullshift = 50.0) where {T}
-    m = size(W, 2); kmax = n - m - 1
-    Wt = Matrix{Complex{T}}(W)
-    Pw(x) = x .- Wt * (Wt' * x)
-    zz = Complex{T}(z); ns = T(nullshift)
-    Mz(x) = (v1 = Pw(x); v2 = Complex{T}.(Lmul(v1)) .- zz .* v1; v3 = Pw(v2);
-    v4 = Complex{T}.(Ladj(v3)) .- conj(zz) .* v3; Pw(v4) .+ ns .* (Wt * (Wt' * x)))
-    α, β, fn, wlast, R2, k = lanczos_pro(Mz, n, kmax; v0 = Pw(randn(Complex{T}, n)))
-    return far_floor(α, β, fn, wlast, R2, k), Float64(R2), k
-end
-
-# min σ_min(G₂₂−zI) over |z|=r (nθ samples, SERIAL — the matvec inside is threaded) + arc-cover.
-function far_min_on_circle(Lmul, Ladj, W, r, n, ::Type{T}; nθ = 16, verbose = false) where {T}
-    s = zeros(nθ); R2s = zeros(nθ); ks = zeros(Int, nθ)
-    for t in 0:(nθ - 1)
-        s[t + 1], R2s[t + 1], ks[t + 1] = far_sigma_min(Lmul, Ladj, W, r * cis(2π * t / nθ), n, T)
-    end
-    verbose && for t in 1:nθ
-        @printf("      θ=%.2fπ σ22=%.4e ‖R₂‖=%.2e k=%d\n", 2(t - 1) / nθ, s[t], R2s[t], ks[t])
-    end
+# thin wrapper (NOT a copy of the Lanczos): min over |z|=r of σ_min(G₂₂−zI) via the reference
+# far-block certificate, + 1-Lipschitz arc-cover. Used by the contraction estimate (example 11).
+function far_min_on_circle(Lmul, Ladj, W, r, n, ::Type{T}; nθ = 16) where {T}
+    s = [RigorousPseudospectra.far_block_sigma_min(Lmul, Ladj, n, W, r * cis(2π * t / nθ);
+             prec = T)[1] for t in 0:(nθ - 1)]
     return minimum(s) - 2r * sin(π / (2nθ)), minimum(s)
 end

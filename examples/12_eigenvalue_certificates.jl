@@ -3,6 +3,13 @@
 # → miyajima_rump refined block-diagonal → per-cluster resolvent circle). This script only
 # builds the operator and writes a per-map LaTeX table.
 #
+# REMARK. This certifies each leading eigenvalue ISOLATED (a small circle around it has no other
+# eigenvalue). The FULL SPECTRAL GAP — λ₁ separated from the entire rest of σ(L) — additionally
+# needs σ_min(L−zI)>0 certified on ONE circle enclosing ALL the other eigenvalues, i.e.
+# σ_min(z−G₂₂) on a contour enclosing the whole far spectrum (the Nisoli Gauss certification).
+# That is the same far-block primitive run on the bulk-enclosing circle (cf. example 11), and is
+# the binding step for strongly non-normal operators.
+#
 #   julia --project=examples --threads=auto examples/12_eigenvalue_certificates.jl
 #   CACHED=1 ...   # cached P_det spmv (fast; recompute matvec is the scaling path)
 

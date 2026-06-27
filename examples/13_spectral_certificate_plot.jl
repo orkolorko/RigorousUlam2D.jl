@@ -21,14 +21,15 @@ function certify_map(label, Lmul, Ladj, n; nblock = 20, neig = 5, prec = Float64
             real(r.λ), imag(r.λ), abs(r.λ), r.cert.radius, r.cert.floor,
             r.cert.certified ? "✓" : "✗")
     end
-    # gap circle: between the smallest certified-leading |λ| and the largest fast |λ|
-    nlead = sum(r.cluster for r in out.results)
-    av = abs.(out.Hritz)
-    r_gap = nlead < length(av) ? sqrt(av[nlead] * av[nlead + 1]) : 0.5 * av[nlead]
-    gfl, ginfo = certify_gap(Lmul, Ladj, n, out.Wlead, r_gap; nθ = 64, prec = prec)
-    @printf("  GAP circle |z|=%.5f: σ_min≥%.3e %s (‖R₂‖=%.1e, σ22min=%.3e)\n",
-        r_gap, gfl, ginfo.certified ? "✓ separates leading from fast spectrum" : "✗",
-        ginfo.R2, ginfo.σ22min)
+    # gap circle: separate the leading `neig` from the rest — one large block H_{n+k}
+    # (nblock ≫ neig), exact svdbox on the block, the deep far block bounded by ‖G₂₂‖.
+    gfl, ginfo = certify_gap(Lmul, Ladj, n; nsep = neig, nblock = min(256, n - 2),
+        nθ = 64, prec = prec)
+    r_gap = ginfo.radius
+    @printf("  GAP circle |z|=%.5f (nsep=%d, nblk=%d): σ_min≥%.3e %s (‖G₂₂‖=%.1e, σ22min=%.3e)\n",
+        r_gap, neig, ginfo.nblock, gfl,
+        ginfo.certified ? "✓ separates leading from fast spectrum" : "✗",
+        ginfo.G22norm, ginfo.σ22min)
     flush(stdout)
     return out, r_gap, ginfo
 end

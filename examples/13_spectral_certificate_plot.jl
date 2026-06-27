@@ -31,7 +31,39 @@ function certify_map(label, Lmul, Ladj, n; nblock = 20, neig = 5, nsep = 1, prec
         ginfo.certified ? "✓ separates leading from fast spectrum" : "✗",
         ginfo.G22norm, ginfo.σ22min)
     flush(stdout)
+    write_resolvent_tex(label, occursin("Lorenz", label) ? "lorenz" : "henon",
+        out, gfl, r_gap, ginfo, nsep)
     return out, r_gap, ginfo
+end
+
+# Save the certified resolvent bounds ‖(L−zI)⁻¹‖₂ ≤ 1/σ_min on each circle, for the paper.
+function write_resolvent_tex(label, tag, out, gfl, r_gap, ginfo, nsep)
+    rb(σ) = σ > 0 ? @sprintf("%.3e", 1 / σ) : "—"
+    open(joinpath(@__DIR__, "resolvent_$(tag).tex"), "w") do io
+        println(io, "% $(label): certified resolvent bounds on the noisy transfer operator L.")
+        println(io, "% On each circle Γ, σ_min(L−zI) ≥ floor ⟹ ‖(L−zI)⁻¹‖₂ ≤ 1/floor for all z∈Γ.")
+        println(io, "\\begin{table}[h]\\centering\\begin{tabular}{l l l l}\\toprule")
+        println(io,
+            "circle \$\\Gamma\$ & \$\\sigma_{\\min}(L-zI)\\ge\$ & \$\\|(L-zI)^{-1}\\|_2\\le\$ & status \\\\\\midrule")
+        @printf(io, "gap \$|z|=%.4f\$ (sep.\\ %d) & %.3e & %s & %s \\\\\n",
+            r_gap, nsep, gfl, rb(gfl), ginfo.certified ? "\\textbf{certified}" : "---")
+        println(io, "\\midrule")
+        for (k, r) in enumerate(out.results)
+            @printf(io,
+                "isol.\\ \$\\lambda_{%d}=%+.4f%+.4fi\$, \$\\rho=%.4f\$ & %.3e & %s & %s \\\\\n",
+                k, real(r.λ), imag(r.λ), r.cert.radius, r.cert.floor, rb(r.cert.floor),
+                r.cert.certified ? "isolated" : "---")
+        end
+        println(io, "\\bottomrule\\end{tabular}")
+        println(io,
+            "\\caption{$(label): certified resolvent bounds for the noisy transfer operator ",
+            "\$L\$. The gap circle separates the leading $(nsep) eigenvalue(s) from the rest: a ",
+            "certified \$\\sigma_{\\min}>0\$ there bounds \$\\|(L-zI)^{-1}\\|_2\\le 1/\\sigma_{\\min}\$ ",
+            "on the whole contour and certifies the contraction rate \$\\le $(round(r_gap,digits=4))\$. ",
+            "Each isolation circle \$\\Gamma_i\$ encloses exactly \$\\lambda_i\$.}")
+        println(io, "\\end{table}")
+    end
+    @printf("  → wrote resolvent_%s.tex\n", tag)
 end
 
 function plot_panel!(ax, label, out, r_gap, ginfo)

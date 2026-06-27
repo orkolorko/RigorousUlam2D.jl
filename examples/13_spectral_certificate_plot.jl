@@ -12,7 +12,7 @@ Pkg.instantiate()
 include(joinpath(@__DIR__, "ulam_matvec.jl"))
 using RigorousPseudospectra, CairoMakie, Printf
 
-function certify_map(label, Lmul, Ladj, n; nblock = 20, neig = 5, prec = Float64)
+function certify_map(label, Lmul, Ladj, n; nblock = 20, neig = 5, nsep = 1, prec = Float64)
     println("\n", "="^70); println(label); println("="^70); flush(stdout)
     out = certify_leading_eigs(Lmul, Ladj, n; nblock = nblock, neig = neig, refine = 6, prec = prec)
     @printf("  miyajima_rump κ₂=%.2f, β_N=%.2e\n", out.mr.kappa, out.βN)
@@ -23,11 +23,11 @@ function certify_map(label, Lmul, Ladj, n; nblock = 20, neig = 5, prec = Float64
     end
     # gap circle: separate the leading `neig` from the rest — one large block H_{n+k}
     # (nblock ≫ neig), exact svdbox on the block, the deep far block bounded by ‖G₂₂‖.
-    gfl, ginfo = certify_gap(Lmul, Ladj, n; nsep = neig, nblock = min(256, n - 2),
+    gfl, ginfo = certify_gap(Lmul, Ladj, n; nsep = nsep, nblock = min(256, n - 2),
         nθ = 64, prec = prec)
     r_gap = ginfo.radius
     @printf("  GAP circle |z|=%.5f (nsep=%d, nblk=%d): σ_min≥%.3e %s (‖G₂₂‖=%.1e, σ22min=%.3e)\n",
-        r_gap, neig, ginfo.nblock, gfl,
+        r_gap, nsep, ginfo.nblock, gfl,
         ginfo.certified ? "✓ separates leading from fast spectrum" : "✗",
         ginfo.G22norm, ginfo.σ22min)
     flush(stdout)
@@ -61,7 +61,8 @@ end
 
 DEPTH = get(ENV, "DEPTH", "") == "" ? 6 : parse(Int, ENV["DEPTH"])
 NEIG = get(ENV, "NEIG", "") == "" ? 5 : parse(Int, ENV["NEIG"])
-NBLOCK = get(ENV, "NBLOCK", "") == "" ? 20 : parse(Int, ENV["NBLOCK"])
+NSEP = get(ENV, "NSEP", "") == "" ? 1 : parse(Int, ENV["NSEP"])   # gap separates leading NSEP (mixing: 1)
+NBLOCK = get(ENV, "NBLOCK", "") == "" ? 24 : parse(Int, ENV["NBLOCK"])
 BITS = get(ENV, "BITS", "") == "" ? 192 : parse(Int, ENV["BITS"]); setprecision(BigFloat, BITS)
 build = get(ENV, "CACHED", "") == "1" ? build_matvec_cached : build_matvec
 NOISE = uniform_noise_box(0.1, 2)
@@ -69,12 +70,12 @@ NOISE = uniform_noise_box(0.1, 2)
 Lh, Lha, nh, _ = build(henon_rescaled,
     IntervalBox(interval(-1.0, 1.0), interval(-1.0, 1.0)), NOISE, DEPTH;
     periodic = true, enclosure_method = first_order_enclosure)
-oh, rgh, gih = certify_map("Hénon (periodic)", Lh, Lha, nh; nblock = NBLOCK, neig = NEIG, prec = Float64)
+oh, rgh, gih = certify_map("Hénon (periodic)", Lh, Lha, nh; nblock = NBLOCK, neig = NEIG, nsep = NSEP, prec = Float64)
 
 Ll, Lla, nl, _ = build(contracting_lorenz,
     IntervalBox(interval(-0.5, 0.5), interval(-0.5, 0.5)), NOISE, DEPTH;
     periodic = false, enclosure_method = zeroth_order_enclosure)
-ol, rgl, gil = certify_map("Contracting Lorenz", Ll, Lla, nl; nblock = NBLOCK, neig = NEIG, prec = BigFloat)
+ol, rgl, gil = certify_map("Contracting Lorenz", Ll, Lla, nl; nblock = NBLOCK, neig = NEIG, nsep = NSEP, prec = BigFloat)
 
 fig = Figure(size = (1200, 560))
 plot_panel!(Axis(fig[1, 1]; xlabel = "Re", ylabel = "Im"), "Hénon: certified spectrum", oh, rgh, gih)

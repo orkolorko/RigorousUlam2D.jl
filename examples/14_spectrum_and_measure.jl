@@ -21,9 +21,11 @@ function certify(label, Lmul, Ladj, n; nblock, neig, nsep, prec)
             real(r.λ), imag(r.λ), abs(r.λ), r.cert.radius, r.cert.floor,
             r.cert.certified ? "✓" : "✗")
     end
-    gfl, ginfo = certify_gap(Lmul, Ladj, n; nsep = nsep, nblock = min(256, n - 2), nθ = 64, prec = prec)
-    @printf("  GAP |z|=%.5f (nsep=%d): σ_min≥%.3e %s (resolvent ≤ %.1f)\n",
-        ginfo.radius, nsep, gfl, ginfo.certified ? "✓" : "✗", gfl > 0 ? 1 / gfl : Inf)
+    # LOCKED gap certificate (singular-direction lock) — the sound, certifying variant.
+    gfl, ginfo = certify_gap_locked(Lmul, Ladj, n; nsep = nsep, nblock = min(256, n - 2),
+        band = GAPBAND, nθ = NTHETA, kmax = GAPKMAX, prec = prec)
+    @printf("  GAP |z|=%.5f (nsep=%d, m=%d): σ_min≥%.3e %s (resolvent ≤ %.1f)\n",
+        ginfo.radius, nsep, ginfo.m, gfl, ginfo.certified ? "✓" : "✗", gfl > 0 ? 1 / gfl : Inf)
     flush(stdout)
     return out, ginfo
 end
@@ -83,6 +85,9 @@ NEIG = get(ENV, "NEIG", "") == "" ? 10 : parse(Int, ENV["NEIG"])
 NSEP = get(ENV, "NSEP", "") == "" ? 1 : parse(Int, ENV["NSEP"])
 NBLOCK = get(ENV, "NBLOCK", "") == "" ? 28 : parse(Int, ENV["NBLOCK"])
 BITS = get(ENV, "BITS", "") == "" ? 192 : parse(Int, ENV["BITS"]); setprecision(BigFloat, BITS)
+NTHETA = get(ENV, "NTHETA", "") == "" ? 512 : parse(Int, ENV["NTHETA"])   # gap-circle samples
+GAPKMAX = get(ENV, "GAPKMAX", "") == "" ? 120 : parse(Int, ENV["GAPKMAX"]) # far-block Lanczos depth
+GAPBAND = get(ENV, "GAPBAND", "") == "" ? 0.2 : parse(Float64, ENV["GAPBAND"])
 build = get(ENV, "CACHED", "") == "1" ? build_matvec_cached : build_matvec
 NOISE = uniform_noise_box(0.1, 2)
 

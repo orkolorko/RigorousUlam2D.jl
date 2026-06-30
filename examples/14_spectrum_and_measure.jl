@@ -22,8 +22,10 @@ function certify(label, Lmul, Ladj, n; nblock, neig, nsep, prec)
             r.cert.certified ? "✓" : "✗")
     end
     # LOCKED gap certificate (singular-direction lock) — the sound, certifying variant.
+    # BigFloat (Lorenz) leg has a larger floor ⇒ fewer samples suffice; cap nθ to bound cost.
+    nθgap = prec == Float64 ? NTHETA : min(NTHETA, 256)
     gfl, ginfo = certify_gap_locked(Lmul, Ladj, n; nsep = nsep, nblock = min(256, n - 2),
-        band = GAPBAND, nθ = NTHETA, kmax = GAPKMAX, prec = prec)
+        band = GAPBAND, nθ = nθgap, kmax = GAPKMAX, prec = prec)
     @printf("  GAP |z|=%.5f (nsep=%d, m=%d): σ_min≥%.3e %s (resolvent ≤ %.1f)\n",
         ginfo.radius, nsep, ginfo.m, gfl, ginfo.certified ? "✓" : "✗", gfl > 0 ? 1 / gfl : Inf)
     flush(stdout)

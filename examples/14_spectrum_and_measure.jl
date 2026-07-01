@@ -22,10 +22,9 @@ function certify(label, Lmul, Ladj, n; nblock, neig, nsep, prec)
             r.cert.certified ? "✓" : "✗")
     end
     # LOCKED gap certificate (singular-direction lock) — the sound, certifying variant.
-    # BigFloat (Lorenz) leg has a larger floor ⇒ fewer samples suffice; cap nθ to bound cost.
-    nθgap = prec == Float64 ? NTHETA : min(NTHETA, 256)
+    # nθ must resolve the arc-cover below the pointwise floor (2r·sin(π/2nθ) < floor); NTHETA=512.
     gfl, ginfo = certify_gap_locked(Lmul, Ladj, n; nsep = nsep, nblock = min(256, n - 2),
-        band = GAPBAND, nθ = nθgap, kmax = GAPKMAX, prec = prec)
+        band = GAPBAND, nθ = NTHETA, kmax = GAPKMAX, prec = prec)
     @printf("  GAP |z|=%.5f (nsep=%d, m=%d): σ_min≥%.3e %s (resolvent ≤ %.1f)\n",
         ginfo.radius, nsep, ginfo.m, gfl, ginfo.certified ? "✓" : "✗", gfl > 0 ? 1 / gfl : Inf)
     flush(stdout)
@@ -92,17 +91,22 @@ GAPKMAX = get(ENV, "GAPKMAX", "") == "" ? 120 : parse(Int, ENV["GAPKMAX"]) # far
 GAPBAND = get(ENV, "GAPBAND", "") == "" ? 0.2 : parse(Float64, ENV["GAPBAND"])
 build = get(ENV, "CACHED", "") == "1" ? build_matvec_cached : build_matvec
 NOISE = uniform_noise_box(0.1, 2)
+ONLY = get(ENV, "ONLY", "")   # "", "henon", or "lorenz" — restrict to one example
 
-dh = IntervalBox(interval(-1.0, 1.0), interval(-1.0, 1.0))
-Lh, Lha, nh, _ = build(henon_rescaled, dh, NOISE, DEPTH; periodic = true, enclosure_method = first_order_enclosure)
-oh, gih = certify("Hénon", Lh, Lha, nh; nblock = NBLOCK, neig = NEIG, nsep = NSEP, prec = Float64)
-figh = make_figure("Hénon", oh, gih, density_grid(oh, dh, DEPTH), dh)
-save(joinpath(@__DIR__, "14_henon.png"), figh)
-println("saved 14_henon.png")
+if ONLY in ("", "henon")
+    dh = IntervalBox(interval(-1.0, 1.0), interval(-1.0, 1.0))
+    Lh, Lha, nh, _ = build(henon_rescaled, dh, NOISE, DEPTH; periodic = true, enclosure_method = first_order_enclosure)
+    oh, gih = certify("Hénon", Lh, Lha, nh; nblock = NBLOCK, neig = NEIG, nsep = NSEP, prec = Float64)
+    figh = make_figure("Hénon", oh, gih, density_grid(oh, dh, DEPTH), dh)
+    save(joinpath(@__DIR__, "14_henon.png"), figh)
+    println("saved 14_henon.png")
+end
 
-dl = IntervalBox(interval(-0.5, 0.5), interval(-0.5, 0.5))
-Ll, Lla, nl, _ = build(contracting_lorenz, dl, NOISE, DEPTH; periodic = false, enclosure_method = zeroth_order_enclosure)
-ol, gil = certify("Contracting Lorenz", Ll, Lla, nl; nblock = NBLOCK, neig = NEIG, nsep = NSEP, prec = BigFloat)
-figl = make_figure("Contracting Lorenz", ol, gil, density_grid(ol, dl, DEPTH), dl)
-save(joinpath(@__DIR__, "14_lorenz.png"), figl)
-println("saved 14_lorenz.png")
+if ONLY in ("", "lorenz")
+    dl = IntervalBox(interval(-0.5, 0.5), interval(-0.5, 0.5))
+    Ll, Lla, nl, _ = build(contracting_lorenz, dl, NOISE, DEPTH; periodic = false, enclosure_method = zeroth_order_enclosure)
+    ol, gil = certify("Contracting Lorenz", Ll, Lla, nl; nblock = NBLOCK, neig = NEIG, nsep = NSEP, prec = BigFloat)
+    figl = make_figure("Contracting Lorenz", ol, gil, density_grid(ol, dl, DEPTH), dl)
+    save(joinpath(@__DIR__, "14_lorenz.png"), figl)
+    println("saved 14_lorenz.png")
+end

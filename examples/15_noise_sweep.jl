@@ -61,8 +61,21 @@ for w in noises
     el = time() - t0
     nout = length(out.results)
     allok = nout > 0 && all(r -> r.cert.certified, out.results)
-    # exactly one eigenvalue outside R ⇒ every other |λ| ≤ R (Prop. count) ⇒ a certified gap
-    gap = (nout == 1 && allok && out.far_deep) ? @sprintf("%.3f ✓", R) : "—"
+    # CERTIFIED SPECTRAL GAP. By the exact-count proposition the certified list outside R is
+    # complete, so:
+    #   nout ≥ 2 : the second-largest modulus is KNOWN (it is the runner-up of the certified list,
+    #              enclosed), so the gap |λ₁| − |λ₂| is certified SHARPLY, not merely bounded;
+    #   nout = 1 : nothing else lies outside R, so |λ₂| ≤ R and the gap is ≥ |λ₁| − R.
+    # Reporting a gap only in the second case (as an earlier version did) was backwards — the
+    # many-eigenvalue case gives the *better* statement.
+    mods = sort([abs(r.λ) for r in out.results]; rev = true)
+    gap = if !(allok && out.far_deep)
+        "—"
+    elseif nout >= 2
+        @sprintf("%.4f  (sharp: |λ₂|=%.4f)", mods[1] - mods[2], mods[2])
+    else
+        @sprintf("≥ %.4f  (|λ₂| ≤ %.3f)", mods[1] - R, R)
+    end
     @printf("%-7.3f %-4d %-6d %-7d %-9.4f %-7s %-8d %-9.1f %s\n",
             w, rx, out.nsing, out.dimQ, out.G22norm, out.far_deep ? "yes ✓" : "NO ✗",
             nout, el, gap)

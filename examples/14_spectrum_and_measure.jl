@@ -14,19 +14,24 @@ using RigorousUlam2D: build_uniform_partition, build_grid_index_maps
 
 function certify(label, Lmul, Ladj, n; nblock, neig, nsep, prec)
     println("\n", "="^70); println(label); println("="^70); flush(stdout)
-    out = certify_leading_eigs(Lmul, Ladj, n; nblock = nblock, neig = neig, refine = 6, prec = prec)
+    # BIG Arnoldi block so the ugly complement is a deep, low-rank ball near 0 (one shared
+    # Lanczos covers all isolation circles + the gap circle); good+bad in the certified block.
+    out = certify_leading_eigs(Lmul, Ladj, n; nblock = min(256, n - 2), neig = neig,
+        refine = 6, prec = prec)
     @printf("  κ₂=%.2f, β_N=%.2e\n", out.mr.kappa, out.βN)
     for r in out.results
         @printf("  λ=%+.5f%+.5fi |λ|=%.5f ρ=%.4f σ_min≥%.3e %s\n",
             real(r.λ), imag(r.λ), abs(r.λ), r.cert.radius, r.cert.floor,
             r.cert.certified ? "✓" : "✗")
     end
-    # LOCKED gap certificate (singular-direction lock) — the sound, certifying variant.
+    # Three-block gap certificate (certify_gap): good+bad captured in the Arnoldi block (exact
+    # svdbox σ11), the far/ugly block σ22 by matvec, assembled with the tight coupling γ
+    # (svd_bound_L2_opnorm — the honest γ makes this beat the locked variant, RPS f4760fb).
     # nθ must resolve the arc-cover below the pointwise floor (2r·sin(π/2nθ) < floor); NTHETA=512.
-    gfl, ginfo = certify_gap_locked(Lmul, Ladj, n; nsep = nsep, nblock = min(256, n - 2),
-        band = GAPBAND, nθ = NTHETA, kmax = GAPKMAX, prec = prec)
-    @printf("  GAP |z|=%.5f (nsep=%d, m=%d): σ_min≥%.3e %s (resolvent ≤ %.1f)\n",
-        ginfo.radius, nsep, ginfo.m, gfl, ginfo.certified ? "✓" : "✗", gfl > 0 ? 1 / gfl : Inf)
+    gfl, ginfo = certify_gap(Lmul, Ladj, n; nsep = nsep, nblock = min(256, n - 2),
+        nθ = NTHETA, kmax = GAPKMAX, prec = prec)
+    @printf("  GAP |z|=%.5f (nsep=%d, nblock=%d): σ_min≥%.3e %s (resolvent ≤ %.1f)\n",
+        ginfo.radius, nsep, ginfo.nblock, gfl, ginfo.certified ? "✓" : "✗", gfl > 0 ? 1 / gfl : Inf)
     flush(stdout)
     return out, ginfo
 end

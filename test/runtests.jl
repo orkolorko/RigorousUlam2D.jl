@@ -38,5 +38,6 @@ using Test
     include("test_grid_aligned_noise.jl")
     include("test_domain_restriction.jl")
     include("test_ulam_discretization.jl")
+    include("test_haar_wavelet.jl")
 
 end

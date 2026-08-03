@@ -55,3 +55,14 @@ Caveats: (1) the (★) assembly loses ~20× to the coupling γ (non-normal trans
 adaptive pearls help less here than where the floor varies. (3) Soundness of the
 locked complement rests on the lock capturing the σ_min direction (the band must be
 wide enough); verified empirically, R₂ clean.
+
+## Certified figures with certify_gap_locked, depth 6 (ibis) — 2026-07-01/02
+
+Re-ran example 14 with the LOCKED gap certificate (RPS feat/hkk-locking @892bbbb,
+provenance-stamped). NTHETA=512 both examples (BigFloat 256-cap was too coarse for
+depth-6 radius → re-ran Lorenz at 512).
+- **Hénon** (Float64): GAP |z|=0.834 (nsep=1, m=4) σ_min ≥ 9.76e-4 ✓, resolvent ≤ 1024. 10/10 isolated.
+- **Lorenz** (BigFloat-192): GAP |z|=0.561 (nsep=1, m=1) σ_min ≥ 2.28e-3 ✓, resolvent ≤ 438. 10/10 isolated.
+Both figures (14_henon.png, 14_lorenz.png) now show a GREEN certified gap circle.
+Mixing-rate reading (Hénon): sub-leading spectral radius ≤ 0.834 ⇒ L¹ decay ≤ C·0.834ⁿ,
+C_L1 ≈ √N·resolvent·r ≈ 5.5e4 (rate rigorous, constant loose from non-normality + √N).

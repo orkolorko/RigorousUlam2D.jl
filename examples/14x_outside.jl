@@ -15,7 +15,7 @@ el=time()-t0
 @printf("Rcirc=%.3f: %.1fs  nsing=%d dim(Q)=%d  ‖G₂₂‖=%.4f (<R? %s)  #outside=%d\n",
         R, el, out.nsing, out.dimQ, out.G22norm, out.far_deep ? "yes ✓" : "NO ✗", length(out.results))
 for r in out.results
-    @printf("  |λ|=%.4f λ=%+.4f%+.4fi  σ_min≥%.3e %s  enclosure r=%.2e\n",
-        abs(r.λ), real(r.λ), imag(r.λ), r.cert.floor, r.cert.certified ? "✓" : "✗", r.cert.enclosure)
+    @printf("  |λ|=%.4f λ=%+.4f%+.4fi  σ_min≥%.3e %s  r_heur=%.1e enclosure=%.1e\n",
+        abs(r.λ), real(r.λ), imag(r.λ), r.cert.floor, r.cert.certified ? "✓" : "✗", r.cert.r_heur, r.cert.enclosure)
     flush(stdout)
 end

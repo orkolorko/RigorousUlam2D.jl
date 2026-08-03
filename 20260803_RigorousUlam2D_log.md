@@ -106,3 +106,38 @@ r ∈ {0.30,0.20,0.10} all qualify — the contour encloses the Perron eigenvalu
 Monotone in the noise; r≈0.2 again the sweet spot. Hénon is ~1.5–2× worse than Lorenz at every
 amplitude, consistent with its subdominant spectrum sitting far closer to the unit circle (4–7
 eigenvalues outside 0.6 versus Lorenz's one). Saved: results/resolvent_circle_around1_henon.txt.
+
+## Resolvent-around-1 certificates (both maps, depth 6) + gate analysis — 2026-08-03 (later)
+
+Files: results/resolvent_circle_around1_{henon,lorenz}.txt. ‖(z−L)⁻¹‖ on |z−1|=r, r∈{0.30,0.20,0.10}
+(r<1−R=0.4 required). Reduced resolvent R₁ = min over r (Kato contour, radius cancels):
+
+  a      Hénon R₁   Lorenz R₁
+  0.30   18.6       11.8
+  0.20   34.8       17.8
+  0.10   95.0       43.4
+  0.05   153        109
+
+GATE R₁·δ_h<1 at depth 6 (δ_h=δ₆/a; δ₆=2/64 Hénon, 1/64 Lorenz):
+  a      Hénon        Lorenz
+  0.30   1.94 ✗       0.62 ✓   ← only config that closes at depth 6
+  0.20   5.4  ✗       1.39 ✗
+  0.10   30   ✗       6.8  ✗
+  0.05   95   ✗       34   ✗
+
+⇒ For the paper's Σ_res pipeline (gate lifts discrete resolvent to true operator), depth-6 certs
+assemble ONLY Lorenz a=0.3: R₁=11.8, abstract=R₁/(1−R₁δ₆)=30.8, Σ_res=1+|M|^½C_M var(ρ)·30.8≈73.7
+(|M|=1, C_M=0.354, var(ρ)=6.67). With depth-10 density (var≈4.6, δ=1/1024): error≈73.7·2.2e-3≈0.17.
+
+IMPORTANT — this SUPERSEDES the draft's current a=0.3 Lorenz headline (0.09, which used R₁=9.1 at
+r=0.40; r=0.40 is INVALID — the circle |z−1|=0.4 touches the |z|=0.6 gap spectrum). Valid r≤0.30
+gives R₁=11.8 → 0.17. Also tab:noise's Lorenz R₁ (9.1,30) and Hénon estimates are superseded.
+
+To fill the rest of the error column via pipeline (A)=Σ_res, need resolvent re-certified at each d*
+(Hénon ~9/11/13/15, Lorenz 6/7/9/12 for a=0.3/0.2/0.1/0.05) — depth 6 not deep enough (gate).
+
+OPEN QUESTION (blocking, for resume): which error-bound pipeline?
+  (A) Σ_res (gate + BV-bridge |M|^½C_M var(ρ)) — rigorous, needs certs at d*. Backs current a=0.3.
+  (B) direct ‖f−f_h‖≤R₁·‖r_h‖ (file footer's literal instruction) — assembles from depth-6 now,
+      but norm-justification looser; Hénon a=0.3 → 18.6·1.0e-3≈0.02 at depth 12.
+Draft NOT edited pending this decision (don't put wrong numbers in the headline).

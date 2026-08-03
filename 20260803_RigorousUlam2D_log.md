@@ -57,3 +57,10 @@ Draft: added tab:gallery (per-noise |λ₂| + var(f_h)) and two 4-panel gallery 
 (fig:gallery_henon, fig:gallery_lorenz) replacing the single a=0.3 figure. Hénon gaps filled
 (periodic-certified); Lorenz |λ₂| column daggered pending the periodic recert now running.
 pdflatex clean, 27pp.
+
+### Periodic Lorenz re-certification DONE — confirms fix
+Re-ran with per=true (both my run and user's refresh of results/, 10:32). Periodic Lorenz
+depth-6 |z|=0.6, all four noises: |λ₁|=1.0000 ✓, 1 eig outside, |λ₂|≤0.60, gap≥0.40.
+|G22|: a=0.3→0.069, 0.2→0.111, 0.1→0.235, 0.05→0.388. σ_min on circle: 6.7e-2/5.3e-2/2.3e-2/8.5e-3.
+Draft tab:gallery Lorenz |λ₂| column filled (≤0.60, all periodic-certified); captions restored.
+pdflatex clean, 27pp, 0 undefined. Sanity check: |λ₁|=1 exactly ⇔ periodic (mass-preserving).

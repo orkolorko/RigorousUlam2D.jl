@@ -88,3 +88,21 @@ Saved: results/resolvent_circle_around1_lorenz.txt (the κ₂ attempt was NOT sa
 COST: the milliseconds are the SVD; the ~150 s/amplitude is the pipeline's full-basis Lanczos for
 ‖G22‖. Since ‖G22‖ is already certified at all four amplitudes, a future run should reuse it and
 rebuild only G₁₁.
+
+### Resolvent circle around 1 — HENON (companion to the Lorenz table above)
+
+Same construction. Contour validity for Hénon needs a check Lorenz did not: Hénon has FOUR certified
+eigenvalues outside R=0.6, so the circle must exclude them too. Their certified positions are
+0.4514±0.5290i (distance 0.762 from z=1) and −0.6748 (distance 1.675); any eigenvalue NOT
+individually certified has |λ| ≤ 0.6 hence distance ≥ 1−R = 0.4. So r < 0.4 is safe, and
+r ∈ {0.30,0.20,0.10} all qualify — the contour encloses the Perron eigenvalue alone.
+
+  noise   r=0.30    r=0.20    r=0.10      ‖(z−L)⁻¹‖ ≤ on |z−1|=r
+  0.30    18.61     21.72     37.35
+  0.20    35.55     34.84     55.13
+  0.10    140.70    95.04     123.77
+  0.05    256.15    152.70    182.40
+
+Monotone in the noise; r≈0.2 again the sweet spot. Hénon is ~1.5–2× worse than Lorenz at every
+amplitude, consistent with its subdominant spectrum sitting far closer to the unit circle (4–7
+eigenvalues outside 0.6 versus Lorenz's one). Saved: results/resolvent_circle_around1_henon.txt.

@@ -30,7 +30,7 @@ if mapnm == "henon"
     F, per, encl, ρfl = henon_rescaled, true, first_order_enclosure, 0.004
 else
     dom = IntervalBox(interval(-0.5, 0.5), interval(-0.5, 0.5))
-    F, per, encl, ρfl = contracting_lorenz, false, zeroth_order_enclosure, 0.001
+    F, per, encl, ρfl = contracting_lorenz, true, zeroth_order_enclosure, 0.001
 end
 cellw = diam(dom[1]) / 2^depth
 
@@ -44,7 +44,7 @@ println("="^100)
 
 for w in noises
     NOISE = uniform_noise_box(w, 2)
-    rx = max(1, Int(round((w/2) / cellw)))
+    rx = max(1, Int(round(w / cellw)))   # = actual rx used inside build_matvec (uniform_noise_box(w,2) → half-width w)
     local L, La, n
     try
         L, La, n, _ = build(F, dom, NOISE, depth; periodic=per, enclosure_method=encl)

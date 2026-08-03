@@ -43,7 +43,7 @@ configs = [
     ("henon", "Hénon", henon_rescaled,
         IntervalBox(interval(-1.0, 1.0), interval(-1.0, 1.0)), first_order_enclosure, true),
     ("lorenz", "contracting Lorenz", contracting_lorenz,
-        IntervalBox(interval(-0.5, 0.5), interval(-0.5, 0.5)), zeroth_order_enclosure, false),
+        IntervalBox(interval(-0.5, 0.5), interval(-0.5, 0.5)), zeroth_order_enclosure, true),
 ]
 
 # ---- convention check: depth-6 leading spectrum for Hénon a=0.1 must reproduce the certificate

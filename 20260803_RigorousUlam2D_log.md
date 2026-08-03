@@ -35,3 +35,25 @@ the "5-cell/7-cell" comments are wrong. Fix: line 47 → round(w/cellw), or rela
 ### Gap certificates on hand (depth 6, |z|=0.6), for a=0.05/0.1/0.2 only
 Hénon: 4 eigenvalues outside 0.6 (complete), |λ₂|=0.6955, ‖G22‖=0.445.
 Lorenz: 1 outside, |λ₂|≤0.60, ‖G22‖=0.234. (a=0.3 certificate pending from user.)
+
+## a=0.3 gap certificate + PERIODICITY BUG in Lorenz certs — 2026-08-03 (later)
+
+certified_gaps.txt now includes a=0.3 (depth 6, |z|=0.6):
+- Hénon a=0.3: 1 eig outside, |λ₁|=1.0000 (periodic ✓), |λ₂|≤0.60, gap≥0.40, |G22|=0.140.
+- Hénon a=0.2/0.1/0.05: |λ₂|=0.6425/0.6955/0.7457 (SHARP, ≥2 outside).
+- Lorenz a=0.3/0.2/0.1/0.05: |λ₁|=0.8477/0.9754/0.9988/0.9996 — ALL <1 ⇒ NON-PERIODIC.
+
+**BUG**: examples/15_noise_sweep.jl had `per=false` for Lorenz (line 33) — violates the
+always-periodic rule. So every Lorenz gap certificate in results/ is the absorbing operator
+(mass leaks, |λ₁|<1), NOT the periodic one the paper uses. Hénon certs are fine (periodic).
+FIXED: set Lorenz per=true; also fixed the cosmetic rx display (line 47 was round((w/2)/cellw),
+actual is round(w/cellw)). Relaunched periodic Lorenz cert (MAP=lorenz, 4 noises).
+
+My gallery script examples/16_density_gallery.jl had the SAME per=false Lorenz inheritance —
+fixed to true, regenerated. Periodic Lorenz var(f_h): a=0.05→22.8, 0.1→13.0, 0.2→7.2, 0.3→4.58
+(a=0.3 max density back to 2.05, matching earlier periodic run; non-periodic had 2.61).
+
+Draft: added tab:gallery (per-noise |λ₂| + var(f_h)) and two 4-panel gallery figures
+(fig:gallery_henon, fig:gallery_lorenz) replacing the single a=0.3 figure. Hénon gaps filled
+(periodic-certified); Lorenz |λ₂| column daggered pending the periodic recert now running.
+pdflatex clean, 27pp.

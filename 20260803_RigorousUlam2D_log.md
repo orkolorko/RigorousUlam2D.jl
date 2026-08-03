@@ -64,3 +64,27 @@ depth-6 |z|=0.6, all four noises: |λ₁|=1.0000 ✓, 1 eig outside, |λ₂|≤0
 |G22|: a=0.3→0.069, 0.2→0.111, 0.1→0.235, 0.05→0.388. σ_min on circle: 6.7e-2/5.3e-2/2.3e-2/8.5e-3.
 Draft tab:gallery Lorenz |λ₂| column filled (≤0.60, all periodic-certified); captions restored.
 pdflatex clean, 27pp, 0 undefined. Sanity check: |λ₁|=1 exactly ⇔ periodic (mass-preserving).
+
+### Certified resolvent on a circle around 1 (Nisoli's route) — WORKS, use these
+
+Circle |z−1| = r encloses ONLY the Perron eigenvalue (all other |λ| ≤ 0.6 certified, so r < 0.4 is
+safe). σ₁₁ from the adaptive pearl cover = verified svdbox on G₁₁ (~92×92) ⇒ κ-FREE, milliseconds.
+σ₂₂ = (1−r) − ‖G22‖, assembled with γ. Lorenz periodic, depth 6:
+
+  noise   r=0.30    r=0.20    r=0.10      ‖(z−L)⁻¹‖ ≤ on the circle
+  0.30    11.83     15.47     28.03
+  0.20    17.84     17.76     30.67
+  0.10    48.92     43.40     65.11
+  0.05    136.75    109.37    150.00
+
+MONOTONE in the noise (less smoothing ⇒ larger resolvent), values O(10)–O(100). r≈0.2 is the sweet
+spot: larger r moves off the Perron pole (bigger σ₁₁) but eats into σ₂₂ = (1−r) − ‖G22‖.
+
+CONTRAST with the κ₂-transported VBD block floor tried first: 1.8e7 / 6.8e5 / 6.6e5 / 6.2e2 —
+unusable AND non-monotone, because κ₂ reached 1e7 and the bound was measuring the frame's
+conditioning, not the operator. The exact-SVD escape pays no transport. A 1e5–1e6× improvement.
+Saved: results/resolvent_circle_around1_lorenz.txt (the κ₂ attempt was NOT saved/committed).
+
+COST: the milliseconds are the SVD; the ~150 s/amplitude is the pipeline's full-basis Lanczos for
+‖G22‖. Since ‖G22‖ is already certified at all four amplitudes, a future run should reuse it and
+rebuild only G₁₁.

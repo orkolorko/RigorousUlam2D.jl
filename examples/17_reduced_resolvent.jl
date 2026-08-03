@@ -38,12 +38,13 @@ else
     F, per, encl, ρfl = contracting_lorenz, true, zeroth_order_enclosure, 0.001
 end
 
-@printf("CERTIFIED REDUCED RESOLVENT ‖(I−L)⁻¹|_V‖ at z=1 — %s, depth %d (n=%d), R=%.2f\n",
+@printf("CERTIFIED RESOLVENT ON A CIRCLE AROUND 1 — %s, depth %d (n=%d), R=%.2f\n",
         mapnm, depth, 4^depth, R)
-println("V = complement of the Perron eigenspace; all quantities certified.")
+println("Circle |z−1| = r encloses ONLY the Perron eigenvalue (all other |λ| ≤ R, so r < 1−R).")
+println("σ₁₁ from the adaptive pearl cover = verified svdbox on G₁₁ — κ-FREE (exact-SVD escape).")
 println("="^104)
-@printf("%-7s %-9s %-9s %-11s %-11s %-11s %-11s %s\n",
-        "noise", "|G22|", "beta", "kappa2", "s11_red(1)", "s22(1)", "floor", "‖(I−L)⁻¹|_V‖ ≤")
+@printf("%-7s %-6s %-9s %-11s %-11s %-11s %s\n",
+        "noise", "r", "|G22|", "s11(circle)", "s22(circle)", "floor", "‖(z−L)⁻¹‖ ≤ on |z−1|=r")
 println("="^104)
 
 for w in noises
@@ -55,29 +56,21 @@ for w in noises
     catch e
         @printf("%-7.3f FAILED: %s\n", w, first(sprint(showerror,e),70)); flush(stdout); continue
     end
-    res = out.mr.res
-    Atil = BallArithmetic.mid(res.transformed)
-    cls  = [collect(c) for c in res.clusters]
-    ctr  = res.eigenvalues
-    β, κ = res.beta, res.kappa
-    # the Perron block: the cluster holding the largest-modulus centre (certified to be λ=1)
-    ip = argmax(abs.(ctr)); pc = findfirst(c -> ip in c, cls)
-    z  = complex(1.0, 0.0)
-    # σ_min over the NON-Perron blocks — the restricted resolvent's block floor
-    smin = Inf
-    for (j, c) in enumerate(cls)
-        j == pc && continue
-        smin = min(smin, Float64(RP._sigma_min_cert(Atil[c, c] - z * I)))
+    # CIRCLE AROUND 1, enclosing ONLY the Perron eigenvalue (every other |λ| ≤ R = 0.6, so any
+    # r < 1 − R = 0.4 is safe). On that contour σ₁₁ = σ_min(G₁₁ − zI) comes from the ADAPTIVE
+    # PEARL COVER — verified svdbox on a small dense block, hence κ-FREE (the exact-SVD escape).
+    # This is the whole point: the κ₂-transported block floor is useless here (κ₂ reaches 1e7),
+    # while the direct SVD pays no transport at all and costs milliseconds.
+    for r in (0.30, 0.20, 0.10)
+        σ11 = Float64(RP._sigmin_circle(out.G11, complex(1.0, 0.0), r; ρfloor = 1e-4))
+        σ22 = (1.0 - r) - out.G22norm            # min|z| on the circle is 1 − r
+        floor = RP._assemble2(σ11, σ22, out.g12, out.g21)
+        bound = floor > 0 ? 1 / floor : Inf
+        @printf("%-7.3f %-6.2f %-9.4f %-11.4e %-11.4f %-11.4e %s\n",
+                w, r, out.G22norm, σ11, σ22, floor,
+                isfinite(bound) ? @sprintf("%.4f", bound) : "∞ (declines)")
+        flush(stdout)
     end
-    isfinite(smin) || (smin = 0.0)
-    σ11red = max(0.0, smin - β) / κ
-    σ22    = 1.0 - out.G22norm                      # |z| = 1 and ‖G22‖ < R < 1 ⇒ positive
-    floor  = RP._assemble2(σ11red, σ22, out.g12, out.g21)
-    bound  = floor > 0 ? 1 / floor : Inf
-    @printf("%-7.3f %-9.4f %-9.2e %-11.3e %-11.4e %-11.4f %-11.4e %s\n",
-            w, out.G22norm, β, κ, σ11red, σ22, floor,
-            isfinite(bound) ? @sprintf("%.4f", bound) : "∞ (declines)")
-    flush(stdout)
 end
 println("="^104)
 println("Multiply by ‖r_h‖ ≤ (δ/2)·var(f_h) to obtain the certified ‖f − f_h‖ error bound.")

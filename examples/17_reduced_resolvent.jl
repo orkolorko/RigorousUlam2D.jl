@@ -18,7 +18,10 @@
 #   CACHED=1 DEPTH=6 MAP=lorenz NOISES=0.3,0.2,0.1,0.05 julia --project=examples examples/17_reduced_resolvent.jl
 import Pkg; Pkg.activate(@__DIR__)
 include(joinpath(@__DIR__, "ulam_matvec.jl"))
-using RigorousPseudospectra, BallArithmetic, Printf, LinearAlgebra
+using RigorousPseudospectra, Printf, LinearAlgebra
+import BallArithmetic   # QUALIFIED on purpose: `using BallArithmetic` here makes `inf` ambiguous
+                        # with IntervalArithmetic (both export it), and Julia then leaves it
+                        # UNDEFINED — which surfaced as a TaskFailedException inside the build.
 const RP = RigorousPseudospectra
 
 build  = get(ENV, "CACHED", "") == "1" ? build_matvec_cached : build_matvec
@@ -53,7 +56,7 @@ for w in noises
         @printf("%-7.3f FAILED: %s\n", w, first(sprint(showerror,e),70)); flush(stdout); continue
     end
     res = out.mr.res
-    Atil = mid(res.transformed)
+    Atil = BallArithmetic.mid(res.transformed)
     cls  = [collect(c) for c in res.clusters]
     ctr  = res.eigenvalues
     β, κ = res.beta, res.kappa

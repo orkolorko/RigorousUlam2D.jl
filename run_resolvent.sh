@@ -21,7 +21,10 @@ noises=${3:?}
 rcirc=${4:-0.6}
 
 export JULIA_NUM_THREADS=${JULIA_NUM_THREADS:-16}
-out="results/resolvent_circle_around1_${map}_d${depth}.txt"
+# The default output is keyed by map+depth, so re-running one noise of a
+# partially-completed sweep would silently clobber the rows already earned.
+# Set OUT to keep them:  OUT=results/..._d7_a02.txt ./run_resolvent.sh ...
+out=${OUT:-results/resolvent_circle_around1_${map}_d${depth}.txt}
 inv="CACHED=1 DEPTH=$depth MAP=$map NOISES=$noises RCIRC=$rcirc julia --project=examples examples/17_reduced_resolvent.jl"
 
 echo "### START depth=$depth map=$map noises=$noises  $(date -Is)"

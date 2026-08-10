@@ -118,12 +118,12 @@ end
 function box_noise(v::AbstractVector{T}, rx, ry, nx, ny, b2g; periodic) where {T}
     n = nx * ny; w = one(real(T)) / ((2rx + 1) * (2ry + 1))
     V = zeros(T, ny, nx)
-    for k in 1:n
+    Threads.@threads for k in 1:n
         ix, iy = b2g[k]; V[iy, ix] = v[k]
     end
     Sx = zeros(T, ny, nx)
     if periodic
-        for iy in 1:ny
+        Threads.@threads for iy in 1:ny
             s = zero(T)
             for d in -rx:rx
                 s += V[iy, mod1(1 + d, nx)]
@@ -146,7 +146,7 @@ function box_noise(v::AbstractVector{T}, rx, ry, nx, ny, b2g; periodic) where {T
     end
     W = zeros(T, ny, nx)
     if periodic
-        for ix in 1:nx
+        Threads.@threads for ix in 1:nx
             s = zero(T)
             for d in -ry:ry
                 s += Sx[mod1(1 + d, ny), ix]
@@ -168,7 +168,7 @@ function box_noise(v::AbstractVector{T}, rx, ry, nx, ny, b2g; periodic) where {T
         end
     end
     res = zeros(T, n)
-    for k in 1:n
+    Threads.@threads for k in 1:n
         ix, iy = b2g[k]; res[k] = w * W[iy, ix]
     end
     return res

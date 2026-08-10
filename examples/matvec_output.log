@@ -1,0 +1,105 @@
+Julia threads: 32
+
+======================================================================
+Lorenz ξ=0.5 d=7: ξ = 0.5000 (σ = 0.2500), var(ρ) = 8.00, depth = 7
+======================================================================
+Building uniform partition (depth=7)...
+  Partition: 16384 boxes (128×128), δ = 0.007812 (0.0s)
+Building adaptive partition for graph...
+  Graph built (136.1s)
+Building deterministic transition matrix...
+  P_det: 16384 × 16384, nnz = 8077 (44.2s)
+  Noise spans 64×64 grid cells, fill ≈ 25.0%, estimated nnz ≈ 67.1M
+  → Building explicit composed matrix
+  P composed: nnz = 21089457 (16.1s)
+Computing norms of powers (sparse, multithreaded)...
+  Norms computed in 423.9s
+  Refined norms:
+    k= 1: raw=1.000000  refined=1.000000
+    k= 2: raw=0.793390  refined=0.793390
+    k= 3: raw=0.412342  refined=0.412342
+    k= 4: raw=0.193929  refined=0.193929
+    k= 5: raw=0.089092  refined=0.089092
+    k= 6: raw=0.040870  refined=0.040870
+    k= 7: raw=0.018635  refined=0.018635
+    k= 8: raw=0.008531  refined=0.008531
+    k= 9: raw=0.003887  refined=0.003887
+    k=10: raw=0.001779  refined=0.001779
+    k=11: raw=0.000811  refined=0.000811
+    k=12: raw=0.000371  refined=0.000371
+    k=13: raw=0.000169  refined=0.000169
+    k=14: raw=0.000077  refined=0.000077
+    k=15: raw=0.000035  refined=0.000035
+    k=16: raw=0.000016  refined=0.000016
+    k=17: raw=0.000007  refined=0.000007
+    k=18: raw=0.000003  refined=0.000003
+    k=19: raw=0.000002  refined=0.000002
+    k=20: raw=0.000001  refined=0.000001
+    k=21: raw=0.000000  refined=0.000000
+    k=22: raw=0.000000  refined=0.000000
+    k=23: raw=0.000000  refined=0.000000
+    k=24: raw=0.000000  refined=0.000000
+    k=25: raw=0.000000  refined=0.000000
+    k=26: raw=0.000000  refined=0.000000
+    k=27: raw=0.000000  refined=0.000000
+    k=28: raw=0.000000  refined=0.000000
+    k=29: raw=0.000000  refined=0.000000
+    k=30: raw=0.000000  refined=0.000000
+
+  ✗ Mixing NOT satisfied. Best at k=2: α=0.7934
+    Need δ < 0.002152 (n ≈ 216225 boxes)
+
+======================================================================
+Lorenz ξ=0.5 d=8: ξ = 0.5000 (σ = 0.2500), var(ρ) = 8.00, depth = 8
+======================================================================
+Building uniform partition (depth=8)...
+  Partition: 65536 boxes (256×256), δ = 0.003906 (0.0s)
+Building adaptive partition for graph...
+  Graph built (2907.7s)
+Building deterministic transition matrix...
+  P_det: 65536 × 65536, nnz = 32789 (704.0s)
+  Noise spans 128×128 grid cells, fill ≈ 25.0%, estimated nnz ≈ 1.1B
+  → Building explicit composed matrix
+  P composed: nnz = 322630304 (274.0s)
+Computing norms of powers (sparse, multithreaded)...
+  Norms computed in 37428.9s
+  Refined norms:
+    k= 1: raw=1.000000  refined=1.000000
+    k= 2: raw=0.787885  refined=0.787885
+    k= 3: raw=0.402808  refined=0.402808
+    k= 4: raw=0.186316  refined=0.186316
+    k= 5: raw=0.084101  refined=0.084101
+    k= 6: raw=0.037895  refined=0.037895
+    k= 7: raw=0.016968  refined=0.016968
+    k= 8: raw=0.007628  refined=0.007628
+    k= 9: raw=0.003413  refined=0.003413
+    k=10: raw=0.001534  refined=0.001534
+    k=11: raw=0.000686  refined=0.000686
+    k=12: raw=0.000309  refined=0.000309
+    k=13: raw=0.000138  refined=0.000138
+    k=14: raw=0.000062  refined=0.000062
+    k=15: raw=0.000028  refined=0.000028
+    k=16: raw=0.000012  refined=0.000012
+    k=17: raw=0.000006  refined=0.000006
+    k=18: raw=0.000003  refined=0.000003
+    k=19: raw=0.000001  refined=0.000001
+    k=20: raw=0.000001  refined=0.000001
+    k=21: raw=0.000000  refined=0.000000
+    k=22: raw=0.000000  refined=0.000000
+    k=23: raw=0.000000  refined=0.000000
+    k=24: raw=0.000000  refined=0.000000
+    k=25: raw=0.000000  refined=0.000000
+    k=26: raw=0.000000  refined=0.000000
+    k=27: raw=0.000000  refined=0.000000
+    k=28: raw=0.000000  refined=0.000000
+    k=29: raw=0.000000  refined=0.000000
+    k=30: raw=0.000000  refined=0.000000
+
+  ✓ MIXING SATISFIED at N=4, α=0.186316
+    Rigorous error bound: ||f_ξ - f_{δ,ξ}||_{L¹} ≤ 0.921734
+
+======================================================================
+Lorenz ξ=0.5 d=9: ξ = 0.5000 (σ = 0.2500), var(ρ) = 8.00, depth = 9
+======================================================================
+Building uniform partition (depth=9)...
+  Partition: 262144 boxes (512×512), δ = 0.001953 (0.0s)

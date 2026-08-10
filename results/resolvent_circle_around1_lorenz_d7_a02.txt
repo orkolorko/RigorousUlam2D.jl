@@ -1,0 +1,37 @@
+# ---------------- provenance ----------------
+# date         2026-08-09T05:13:22-03:00
+# host         vulture
+# commit       2e82dd1dfd7dce31443cc8d7a4e035640c8580a2
+# branch       main
+# WORKTREE     DIRTY -- 3 uncommitted path(s); numbers below are NOT reproducible from the commit above
+#               M run_resolvent.sh
+#              ?? results/resolvent_circle_around1_lorenz_d7_a02.txt
+#              ?? run_lorenz_d7_a02_20260809.log
+# julia        julia version 1.12.6
+# threads      JULIA_NUM_THREADS=16
+# nproc        32
+# invocation   CACHED=1 DEPTH=7 MAP=lorenz NOISES=0.2 RCIRC=0.6 julia --project=examples examples/17_reduced_resolvent.jl
+# --------------------------------------------
+  Activating project at `~/Code/RigorousUlam2D.jl/examples`
+┌ Info: Switching to OpenBLAS with ConsistentFPCSR = 1 flag enabled, guarantees
+└         correct floating point rounding mode over all threads.
+[ Info: OpenBLAS is giving correct rounding on a (1024,1024) test matrix on 16 threads
+CERTIFIED RESOLVENT ON A CIRCLE AROUND 1 — lorenz, depth 7 (n=16384), R=0.60
+Circle |z−1| = r encloses ONLY the Perron eigenvalue (all other |λ| ≤ R, so r < 1−R).
+σ₁₁ from the adaptive pearl cover = verified svdbox on G₁₁ — κ-FREE (exact-SVD escape).
+========================================================================================================
+noise   r      |G22|     s11(circle) s22(circle) floor       ‖(z−L)⁻¹‖ ≤ on |z−1|=r
+========================================================================================================
+0.200   0.30   0.1145    7.9897e-02  0.5855      5.5171e-02  18.1256
+0.200   0.20   0.1145    7.6528e-02  0.6855      5.5540e-02  18.0049
+0.200   0.10   0.1145    4.1460e-02  0.7855      3.2261e-02  30.9969
+========================================================================================================
+Multiply by ‖r_h‖ ≤ (δ/2)·var(f_h) to obtain the certified ‖f − f_h‖ error bound.
+Generating forwards to /home/isaia/.julia/artifacts/e4b0c40ccfbafe4214edd9d6b498b1082af34a35/lib/libopenblas64_.so (clear: 0, verbose: 1, suffix_hint: '(null)')
+ -> Autodetected symbol suffix "64_"
+ -> Autodetected interface ILP64 (64-bit)
+ -> Autodetected normal complex return style
+ -> Autodetected gfortran calling convention
+ -> CBLAS detected
+Processed 5146 symbols; forwarded 5067 symbols with 64-bit interface and mangling to a suffix of "64_"
+elapsed_seconds=22930 rc=0

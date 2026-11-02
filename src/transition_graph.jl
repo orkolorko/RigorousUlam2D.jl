@@ -281,7 +281,7 @@ function ulam_hierarchy(F, domain::IntervalBox{2}, d0::Int, d1::Int; leaf_depth:
             end
             children[k] = out
         end
-        active = reduce(vcat, children; init = _Node[])
+        active = isempty(children) ? _Node[] : reduce(vcat, children)
         _split!(leaves, active, d + 1, d1)
     end
     append!(leaves, active)                       # the uncertain leaves at the last level

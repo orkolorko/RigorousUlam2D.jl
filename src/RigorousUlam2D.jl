@@ -18,6 +18,7 @@ include("spectral_analysis.jl")
 include("transfer_matvec.jl")
 include("haar_wavelet.jl")
 include("schur_norm_bounds.jl")
+include("transition_graph.jl")
 
 # Re-export from submodules
 # Partition utilities

@@ -39,5 +39,6 @@ using Test
     include("test_domain_restriction.jl")
     include("test_ulam_discretization.jl")
     include("test_haar_wavelet.jl")
+    include("test_transition_graph.jl")
 
 end

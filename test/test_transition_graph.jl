@@ -78,6 +78,32 @@ end
         end
     end
 
+    @testset "the tree read level by level: enclosures tighten, never fail" begin
+        c = 1 / 3
+        shift_third = (x, y) -> (x + c, y)
+        tree = UlamTree(shift_third, dom, 2, 3)
+        @test tree.level == 2
+        @test_throws ArgumentError ulam_matrices(tree, 3)
+        truth = Dict(d => Float64.(shift_matrix(Rational{BigInt}(c), 2^d, :periodic)) for d in 2:3)
+        width = Dict(2 => Inf, 3 => Inf)
+        for ℓ in 2:9
+            ℓ > 2 && refine!(tree)
+            @test tree.level == ℓ
+            for d in 2:min(ℓ, 3)
+                r = ulam_matrices(tree, d)
+                perm = boxperm(r.partition, 2^d)
+                Llo = Matrix(r.L_lo)[perm, perm]; U = Matrix(r.U)[perm, perm]
+                @test all(Llo .<= truth[d]) && all(truth[d] .<= Llo .+ U .+ 1e-15)
+                w = maximum(sum(U; dims = 1))
+                @test w <= width[d]
+                width[d] = w
+            end
+        end
+        @test width[2] <= 3 * 2.0^-7 && width[3] <= 3 * 2.0^-6
+        one_shot = ulam_hierarchy(shift_third, dom, 2, 3; leaf_depth = 6)
+        @test one_shot[2].L_lo == ulam_matrices(tree, 3).L_lo && one_shot[2].U == ulam_matrices(tree, 3).U
+    end
+
     @testset "reflecting: folded images, resolved without subdivision" begin
         shift_half = (x, y) -> (x + 0.5, y)     # cell [1/2,1] → [1,3/2] folds onto [1/2,1]
         r = ulam_hierarchy(shift_half, dom, 1, 1; leaf_depth = 0, bc = :reflecting)[1]

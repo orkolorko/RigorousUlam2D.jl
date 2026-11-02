@@ -2,8 +2,10 @@
 The transition graph of a map on the uniform grids of `build_uniform_partition`, refined level
 by level, and the Ulam matrices read off the refinement.
 
-The grid of depth `d` has `2^d × 2^d` cells; `ulam_hierarchy` refines the source cells from a
-depth `d0` down to `d1 + leaf_depth`, with the target cells at depth `d1`:
+The grid of depth `d` has `2^d × 2^d` cells; a `UlamTree` refines the source cells level by
+level from a depth `d0` (`refine!`), with the target cells at depth `d1`, and `ulam_matrices`
+reads the matrices at any depth up to the current level; `ulam_hierarchy` refines to
+`d1 + leaf_depth` in one go:
 
 - a cell at depth `d ≤ d1` carries the list of its candidate targets at depth `d`, the cells
   met by the enclosure of its image, and the children of a cell can only go to the children
@@ -37,7 +39,7 @@ of a box is the intersection of the natural interval extension of `F` with the e
 `enclosure_method`; both enclose the true image, so does their intersection.
 """
 
-export transition_graph, ulam_hierarchy
+export transition_graph, ulam_hierarchy, UlamTree, refine!, ulam_matrices
 
 # ---------------------------------------------------------------------------------------------
 # One axis of a grid: n cells of width dx on [x0, x0 + L], with the grid lines x0 + i dx exact.
@@ -232,92 +234,123 @@ struct _Node
 end
 
 """
-    ulam_hierarchy(F, domain, d0, d1; leaf_depth=8, bc=:periodic,
-                   enclosure_method=first_order_enclosure)
+    UlamTree(F, domain, d0, d1; bc=:periodic, enclosure_method=first_order_enclosure)
 
-Transition graphs and Ulam matrix enclosures at the depths `d0:d1` (see the file docstring).
-Returns a vector with one named tuple `(depth, partition, graph, L_lo, U)` per depth, the
-matrices indexed as `partition = build_uniform_partition(domain, depth)`.  The source cells are
-refined to depth `d1 + leaf_depth`; the uncertain mass of a cell at depth `d` is at most the
-mass of a strip of width `diam(domain) 2^{-(d1 + leaf_depth)}` around the preimages of the
-grid lines of depth `d1`.
+The refinement of the file docstring as a mutable object: `refine!(tree)` descends one level,
+`tree.level` is the depth of the active cells, and `ulam_matrices(tree, d)` reads the graph and
+the matrices at any depth `d0 ≤ d ≤ min(tree.level, d1)` off the current level, so a long
+refinement can hand out the coarse matrices as it goes and each level halves their widths.
+`ulam_hierarchy` is the one-shot form.
 """
-function ulam_hierarchy(F, domain::IntervalBox{2}, d0::Int, d1::Int; leaf_depth::Int = 8,
+mutable struct UlamTree
+    F
+    domain::IntervalBox{2}
+    d0::Int
+    d1::Int
+    bc::Symbol
+    enclosure_method
+    grids::Vector{_Grid}        # grids[d + 1] has depth d, grown as the tree descends
+    level::Int                  # depth of the active cells
+    active::Vector{_Node}       # cells with several candidates, or above d1
+    leaves::Vector{_Node}       # resolved cells: one candidate at depth d1
+end
+
+function UlamTree(F, domain::IntervalBox{2}, d0::Int, d1::Int;
         bc::Symbol = :periodic, enclosure_method = first_order_enclosure)
     0 <= d0 <= d1 || throw(ArgumentError("need 0 ≤ d0 ≤ d1, got $d0, $d1"))
-    leaf_depth >= 0 || throw(ArgumentError("leaf_depth must be nonnegative"))
-    dmax = d1 + leaf_depth
-    grids = [_Grid(domain, d, bc) for d in 0:dmax]         # grids[d + 1] has depth d
-    gt(d) = grids[min(d, d1) + 1]                          # target grid for sources at depth d
-
-    # level d0: every cell, candidates from its own image
+    grids = [_Grid(domain, d, bc) for d in 0:d0]
     g0 = grids[d0 + 1]
+    gt = grids[min(d0, d1) + 1]
     active = Vector{_Node}(undef, g0.ax.n * g0.ay.n)
     Threads.@threads :dynamic for id in eachindex(active)
         X, Y = _image(F, _box(g0, _xy(g0, id)...), enclosure_method)
-        active[id] = _Node(d0, id, _targets!(Int[], gt(d0), X, Y))
+        active[id] = _Node(d0, id, _targets!(Int[], gt, X, Y))
     end
-    leaves = _Node[]
-    _split!(leaves, active, d0, d1)
+    tree = UlamTree(F, domain, d0, d1, bc, enclosure_method, grids, d0, active, _Node[])
+    _split!(tree)
+    return tree
+end
 
-    for d in d0:dmax-1
-        gs, gc = grids[d + 2], gt(d + 1)          # children's grid, children's target grid
-        refine_targets = d + 1 <= d1               # candidates refine with the sources
-        children = Vector{Vector{_Node}}(undef, length(active))
-        Threads.@threads :dynamic for k in eachindex(active)
-            node = active[k]
-            ix, iy = _xy(grids[d + 1], node.id)
-            out = _Node[]
-            ids = Int[]
-            for (cx, cy) in ((2ix - 1, 2iy - 1), (2ix, 2iy - 1), (2ix - 1, 2iy), (2ix, 2iy))
-                X, Y = _image(F, _box(gs, cx, cy), enclosure_method)
-                _targets!(ids, gc, X, Y)
-                if refine_targets
-                    cands = [i for i in ids if _ancestor(gc, i, d) in node.cands]
-                else
-                    cands = [i for i in ids if i in node.cands]
-                end
-                push!(out, _Node(d + 1, _id(gs, cx, cy), cands))
+function _grid(tree::UlamTree, d::Int)
+    while length(tree.grids) <= d
+        push!(tree.grids, _Grid(tree.domain, length(tree.grids), tree.bc))
+    end
+    return tree.grids[d + 1]
+end
+
+"""
+    refine!(tree::UlamTree) -> tree
+
+Quadrisect every active cell: the candidates of a child are the cells met by the enclosure of
+its image among the children of its parent's candidates (above `d1`), or among its parent's
+candidates (at or below `d1`); children with a single candidate at depth `d1` are resolved.
+"""
+function refine!(tree::UlamTree)
+    d, d1 = tree.level, tree.d1
+    gp, gs = _grid(tree, d), _grid(tree, d + 1)         # parents' and children's grids
+    gc = _grid(tree, min(d + 1, d1))                     # children's target grid
+    refine_targets = d + 1 <= d1
+    F, encl = tree.F, tree.enclosure_method
+    children = Vector{Vector{_Node}}(undef, length(tree.active))
+    Threads.@threads :dynamic for k in eachindex(children)
+        node = tree.active[k]
+        ix, iy = _xy(gp, node.id)
+        out = _Node[]
+        ids = Int[]
+        for (cx, cy) in ((2ix - 1, 2iy - 1), (2ix, 2iy - 1), (2ix - 1, 2iy), (2ix, 2iy))
+            X, Y = _image(F, _box(gs, cx, cy), encl)
+            _targets!(ids, gc, X, Y)
+            if refine_targets
+                cands = [i for i in ids if _ancestor(gc, i, d) in node.cands]
+            else
+                cands = [i for i in ids if i in node.cands]
             end
-            children[k] = out
+            push!(out, _Node(d + 1, _id(gs, cx, cy), cands))
         end
-        active = isempty(children) ? _Node[] : reduce(vcat, children)
-        _split!(leaves, active, d + 1, d1)
+        children[k] = out
     end
-    append!(leaves, active)                       # the uncertain leaves at the last level
-
-    return [_assemble(leaves, grids, d, d1, domain) for d in d0:d1]
+    tree.active = isempty(children) ? _Node[] : reduce(vcat, children)
+    tree.level = d + 1
+    _split!(tree)
+    return tree
 end
 
-# Move to `leaves` the nodes of `active` that are resolved (one candidate at depth d1, which
-# needs d ≥ d1); keep the others active.  A node at depth d < d1 with a single candidate at
-# depth d keeps refining, since its targets at depth d1 are not known yet.
-function _split!(leaves, active, d, d1)
+# Move the resolved active cells (one candidate at depth d1, which needs level ≥ d1) to the
+# leaves.  A cell at a depth d < d1 with a single candidate at depth d keeps refining, since its
+# targets at depth d1 are not known yet.
+function _split!(tree::UlamTree)
+    tree.level >= tree.d1 || return tree
     keep = _Node[]
-    for node in active
+    for node in tree.active
         isempty(node.cands) && error("a cell has no candidate target: the map leaves the domain")
-        if length(node.cands) == 1 && d >= d1
-            push!(leaves, node)
-        else
-            push!(keep, node)
-        end
+        length(node.cands) == 1 ? push!(tree.leaves, node) : push!(keep, node)
     end
-    empty!(active); append!(active, keep)
-    return active
+    tree.active = keep
+    return tree
 end
 
-# The matrices at depth d ≤ d1 from the leaves, whose candidates are cells of depth d1 and whose
-# depth is at least d1.
-function _assemble(leaves, grids, d, d1, domain)
-    gd, g1 = grids[d + 1], grids[d1 + 1]
+"""
+    ulam_matrices(tree::UlamTree, d) -> (depth, partition, graph, L_lo, U)
+
+The graph and the Ulam matrix enclosure at depth `d`, `d0 ≤ d ≤ min(tree.level, d1)`, read off
+the current level: every cell of the tree, resolved or active, contributes its mass `4^{-(ℓ-d)}`
+relative to its ancestor at depth `d` to `L_lo` when the ancestors at depth `d` of its
+candidates are a single cell and to `U` for each of them otherwise.  Matrices are indexed as
+`partition = build_uniform_partition(domain, d)`.
+"""
+function ulam_matrices(tree::UlamTree, d::Int)
+    tree.d0 <= d <= min(tree.level, tree.d1) ||
+        throw(ArgumentError("depth $d is not in $(tree.d0):$(min(tree.level, tree.d1))"))
+    gd = _grid(tree, d)
     n = gd.ax.n * gd.ay.n
     lo = [Dict{Int,Float64}() for _ in 1:n]
     up = [Dict{Int,Float64}() for _ in 1:n]
-    for leaf in leaves
-        gl = grids[leaf.depth + 1]
-        anc = unique(_ancestor(g1, c, d) for c in leaf.cands)
-        j = _ancestor(gl, leaf.id, d)
-        mass = 4.0^(-(leaf.depth - d))
+    for node in Iterators.flatten((tree.leaves, tree.active))
+        gl = _grid(tree, node.depth)
+        gt = _grid(tree, min(node.depth, tree.d1))
+        anc = unique(_ancestor(gt, c, d) for c in node.cands)
+        j = _ancestor(gl, node.id, d)
+        mass = 4.0^(-(node.depth - d))
         if length(anc) == 1
             lo[j][anc[1]] = get(lo[j], anc[1], 0.0) + mass
         else
@@ -335,12 +368,32 @@ function _assemble(leaves, grids, d, d1, domain)
             push!(UI, i); push!(UJ, j); push!(UV, v)
         end
     end
-    partition = build_uniform_partition(domain, d)
+    partition = build_uniform_partition(tree.domain, d)
     perm = _box_permutation(partition, gd)         # perm[id] = box index in the partition
     L_lo = sparse(perm[I], perm[J], V, n, n)
     U = sparse(perm[UI], perm[UJ], UV, n, n)
     graph = sparse(perm[vcat(I, UI)], perm[vcat(J, UJ)], true, n, n)
     return (; depth = d, partition, graph, L_lo, U)
+end
+
+"""
+    ulam_hierarchy(F, domain, d0, d1; leaf_depth=8, bc=:periodic,
+                   enclosure_method=first_order_enclosure)
+
+Transition graphs and Ulam matrix enclosures at the depths `d0:d1` (see the file docstring):
+a `UlamTree` refined to depth `d1 + leaf_depth`, read at each depth with `ulam_matrices`.
+Returns a vector with one named tuple `(depth, partition, graph, L_lo, U)` per depth.  The
+uncertain mass of a cell at depth `d` is at most the mass of a strip of width
+`diam(domain) 2^{-(d1 + leaf_depth)}` around the preimages of the grid lines of depth `d1`.
+"""
+function ulam_hierarchy(F, domain::IntervalBox{2}, d0::Int, d1::Int; leaf_depth::Int = 8,
+        bc::Symbol = :periodic, enclosure_method = first_order_enclosure)
+    leaf_depth >= 0 || throw(ArgumentError("leaf_depth must be nonnegative"))
+    tree = UlamTree(F, domain, d0, d1; bc, enclosure_method)
+    while tree.level < d1 + leaf_depth
+        refine!(tree)
+    end
+    return [ulam_matrices(tree, d) for d in d0:d1]
 end
 
 # Map the grid ids of g to the box indices of `partition` (built by build_uniform_partition).

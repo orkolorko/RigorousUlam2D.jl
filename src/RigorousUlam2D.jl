@@ -4,6 +4,7 @@ using ForwardDiff
 using IntervalArithmetic, IntervalBoxes
 using SparseArrays
 using LinearAlgebra
+import Serialization
 
 # Export enclosure methods
 export zeroth_order_enclosure, first_order_enclosure

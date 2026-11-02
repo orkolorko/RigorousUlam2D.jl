@@ -149,4 +149,38 @@ end
         # the one-level graph contains the refined one
         @test all(transition_graph(henon, domh, 4)[r4.graph] .== true)
     end
+
+    @testset "the store: resumed from disk, and rows refined on demand" begin
+        c = 1 / 3
+        shift_third = (x, y) -> (x + c, y)
+        store = mktempdir()
+        tree = UlamTree(shift_third, dom, 2, 3; store)
+        for _ in 1:3; refine!(tree); end
+        @test tree.level == 5 && tree.maxlevel == 5
+        tree2 = UlamTree(shift_third, dom, 2, 3; store)      # resumed: same level, same matrices
+        @test tree2.level == 5 && tree2.nactive == tree.nactive && tree2.nresolved == tree.nresolved
+        r1, r2 = ulam_matrices(tree, 2:3), ulam_matrices(tree2, 2:3)
+        @test all(a.L_lo == b.L_lo && a.U == b.U for (a, b) in zip(r1, r2))
+        @test r1[2].L_lo == ulam_matrices(tree, 3).L_lo
+        @test_throws ArgumentError UlamTree(shift_third, dom, 2, 4; store)
+        refine!(tree2); refine!(tree2)
+        fresh = ulam_hierarchy(shift_third, dom, 2, 3; leaf_depth = 4)
+        rr = ulam_matrices(tree2, 2:3)
+        @test all(a.L_lo == b.L_lo && a.U == b.U for (a, b) in zip(fresh, rr))
+        # refine only the cells feeding the rows of the lower half of the domain at depth 3:
+        # those rows halve, the others do not move, and the enclosure still holds
+        truth = Float64.(shift_matrix(Rational{BigInt}(c), 8, :periodic))
+        rows0 = vec(sum(Matrix(rr[2].U); dims = 2))
+        heavy = [sup(b[2]) <= 0.5 for b in rr[2].partition.boxes]
+        @test 0 < count(heavy) < length(heavy)
+        refine!(tree2; targets = heavy)
+        @test tree2.level == 7 && tree2.maxlevel == 8
+        r = ulam_matrices(tree2, 3)
+        perm = boxperm(r.partition, 8)
+        rows1 = vec(sum(Matrix(r.U); dims = 2))
+        @test all(rows1[heavy] .<= rows0[heavy] / 2 .+ 1e-15)
+        @test rows1[.!heavy] == rows0[.!heavy]
+        Llo = Matrix(r.L_lo)[perm, perm]; U = Matrix(r.U)[perm, perm]
+        @test all(Llo .<= truth) && all(truth .<= Llo .+ U .+ 1e-15)
+    end
 end

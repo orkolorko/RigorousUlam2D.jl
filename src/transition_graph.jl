@@ -19,6 +19,9 @@ reads the matrices at any depth up to the current level; `ulam_hierarchy` refine
   again; above `d1` every cell is subdivided, since its targets at depth `d1` are not known;
 - a cell at the last level with several candidates is uncertain.
 
+The tree is kept on disk, one subtree per cell of depth `d0` (see `UlamTree`), so a
+refinement needs memory for the subtrees being refined only and resumes where it stopped.
+
 Every leaf of this tree, resolved or uncertain, has a depth `ℓ ≥ d1`, a position, and its
 candidate targets at depth `d1`.  The Ulam matrix `L^{(d)}` at a depth `d0 ≤ d ≤ d1`,
 `L^{(d)}[i, j] = |I_j ∩ T⁻¹(I_i)| / |I_j|`, is then enclosed by
@@ -225,22 +228,43 @@ function transition_graph(F, domain::IntervalBox{2}, depth::Int;
     return h[1].graph
 end
 
-# A node of the refinement: a source cell at depth `depth`, and its candidate targets at
-# depth min(depth, d1).
-struct _Node
-    depth::Int
-    id::Int
+# ---------------------------------------------------------------------------------------------
+# The tree lives on disk, one subtree per cell of depth d0, so that nothing but the subtree
+# being refined is in memory and a refinement interrupted at any point resumes from the
+# subtrees already written.
+
+# The state of one subtree: its uncertain cells (the frontier), each at its own depth
+# `levels[k] ≥ d0` with the candidate targets `cands[candptr[k]:candptr[k+1]-1]` at depth
+# `min(levels[k], d1)`, and the mass already resolved, one accumulator per depth `d` in
+# `d0:d1` keyed by `(j - 1) 4^d + i` for the entry `(i, j)` of `L_lo^{(d)}`.
+struct _Subtree
+    root::Int
+    levels::Vector{Int}
+    ids::Vector{Int}
+    candptr::Vector{Int}
     cands::Vector{Int}
+    resolved::Vector{Dict{Int,Float64}}
+    nresolved::Int
+    depth::Int                  # the finest depth reached, resolved cells included
 end
 
-"""
-    UlamTree(F, domain, d0, d1; bc=:periodic, enclosure_method=first_order_enclosure)
+_nactive(sub::_Subtree) = length(sub.ids)
 
-The refinement of the file docstring as a mutable object: `refine!(tree)` descends one level,
-`tree.level` is the depth of the active cells, and `ulam_matrices(tree, d)` reads the graph and
-the matrices at any depth `d0 ≤ d ≤ min(tree.level, d1)` off the current level, so a long
-refinement can hand out the coarse matrices as it goes and each level halves their widths.
-`ulam_hierarchy` is the one-shot form.
+"""
+    UlamTree(F, domain, d0, d1; bc=:periodic, enclosure_method=first_order_enclosure,
+             store=mktempdir())
+
+The refinement of the file docstring as an object kept on disk: `refine!(tree)` descends one
+level, `tree.level` is the depth of the coarsest uncertain cell, and `ulam_matrices(tree, d)`
+reads the graph and the matrices at any depth `d0 ≤ d ≤ min(tree.level, d1)`, so a long
+refinement hands out the coarse matrices as it goes and each level halves their widths.
+
+The tree is split into one subtree per cell of depth `d0`, each in its own file
+`root<k>.jls` of the directory `store`, written whole after every refinement of that
+subtree; only the subtrees being refined are in memory.  Constructing a tree on a `store`
+that already holds one with the same domain, depths and boundary condition resumes it, so an
+interrupted refinement is continued by running it again; `F` and `enclosure_method` are not
+stored and must be the ones the store was built with.  `ulam_hierarchy` is the one-shot form.
 """
 mutable struct UlamTree
     F
@@ -249,25 +273,48 @@ mutable struct UlamTree
     d1::Int
     bc::Symbol
     enclosure_method
+    store::String
     grids::Vector{_Grid}        # grids[d + 1] has depth d, grown as the tree descends
-    level::Int                  # depth of the active cells
-    active::Vector{_Node}       # cells with several candidates, or above d1
-    leaves::Vector{_Node}       # resolved cells: one candidate at depth d1
+    level::Int                  # depth of the coarsest uncertain cell (maxlevel if none)
+    maxlevel::Int               # depth of the finest cell
+    nactive::Int                # uncertain cells
+    nresolved::Int              # resolved cells
 end
 
+_meta(domain::IntervalBox{2}, d0, d1, bc) =
+    (; x = (inf(domain[1]), sup(domain[1])), y = (inf(domain[2]), sup(domain[2])), d0, d1, bc)
+_rootfile(tree::UlamTree, k::Int) = joinpath(tree.store, "root$k.jls")
+_nroots(tree::UlamTree) = 4^tree.d0
+
 function UlamTree(F, domain::IntervalBox{2}, d0::Int, d1::Int;
-        bc::Symbol = :periodic, enclosure_method = first_order_enclosure)
+        bc::Symbol = :periodic, enclosure_method = first_order_enclosure,
+        store::AbstractString = mktempdir())
     0 <= d0 <= d1 || throw(ArgumentError("need 0 ≤ d0 ≤ d1, got $d0, $d1"))
     grids = [_Grid(domain, d, bc) for d in 0:d0]
-    g0 = grids[d0 + 1]
-    gt = grids[min(d0, d1) + 1]
-    active = Vector{_Node}(undef, g0.ax.n * g0.ay.n)
-    Threads.@threads :dynamic for id in eachindex(active)
-        X, Y = _image(F, _box(g0, _xy(g0, id)...), enclosure_method)
-        active[id] = _Node(d0, id, _targets!(Int[], gt, X, Y))
+    tree = UlamTree(F, domain, d0, d1, bc, enclosure_method, String(store), grids, d0, d0, 0, 0)
+    meta = _meta(domain, d0, d1, bc)
+    metafile = joinpath(tree.store, "tree.jls")
+    if isfile(metafile)
+        Serialization.deserialize(metafile) == meta ||
+            throw(ArgumentError("$(tree.store) holds a tree with another domain, depths or boundary condition"))
+    else
+        mkpath(tree.store)
+        g0 = grids[d0 + 1]
+        Threads.@threads :dynamic for k in 1:_nroots(tree)
+            X, Y = _image(F, _box(g0, _xy(g0, k)...), enclosure_method)
+            cands = _targets!(Int[], g0, X, Y)
+            isempty(cands) && error("cell $k of depth $d0 has no candidate target: the map leaves the domain")
+            resolved = [Dict{Int,Float64}() for _ in d0:d1]
+            if d0 == d1 && length(cands) == 1
+                _resolve!(tree, resolved, d0, k, cands[1])
+                _write(tree, _Subtree(k, Int[], Int[], [1], Int[], resolved, 1, d0))
+            else
+                _write(tree, _Subtree(k, [d0], [k], [1, length(cands) + 1], cands, resolved, 0, d0))
+            end
+        end
+        Serialization.serialize(metafile, meta)    # written last: a half-built store is rebuilt
     end
-    tree = UlamTree(F, domain, d0, d1, bc, enclosure_method, grids, d0, active, _Node[])
-    _split!(tree)
+    _index!(tree)
     return tree
 end
 
@@ -278,107 +325,207 @@ function _grid(tree::UlamTree, d::Int)
     return tree.grids[d + 1]
 end
 
-"""
-    refine!(tree::UlamTree) -> tree
-
-Quadrisect every active cell: the candidates of a child are the cells met by the enclosure of
-its image among the children of its parent's candidates (above `d1`), or among its parent's
-candidates (at or below `d1`); children with a single candidate at depth `d1` are resolved.
-"""
-function refine!(tree::UlamTree)
-    d, d1 = tree.level, tree.d1
-    gp, gs = _grid(tree, d), _grid(tree, d + 1)         # parents' and children's grids
-    gc = _grid(tree, min(d + 1, d1))                     # children's target grid
-    refine_targets = d + 1 <= d1
-    F, encl = tree.F, tree.enclosure_method
-    children = Vector{Vector{_Node}}(undef, length(tree.active))
-    Threads.@threads :dynamic for k in eachindex(children)
-        node = tree.active[k]
-        ix, iy = _xy(gp, node.id)
-        out = _Node[]
-        ids = Int[]
-        for (cx, cy) in ((2ix - 1, 2iy - 1), (2ix, 2iy - 1), (2ix - 1, 2iy), (2ix, 2iy))
-            X, Y = _image(F, _box(gs, cx, cy), encl)
-            _targets!(ids, gc, X, Y)
-            if refine_targets
-                cands = [i for i in ids if _ancestor(gc, i, d) in node.cands]
-            else
-                cands = [i for i in ids if i in node.cands]
-            end
-            push!(out, _Node(d + 1, _id(gs, cx, cy), cands))
-        end
-        children[k] = out
+# A cell `id` at depth ℓ ≥ d1 resolved to the single target `c` at depth d1: its mass goes to
+# every depth d in d0:d1, to the entry (ancestor of c, ancestor of id).
+function _resolve!(tree::UlamTree, resolved, ℓ::Int, id::Int, c::Int)
+    gl, gt = tree.grids[ℓ + 1], tree.grids[tree.d1 + 1]
+    for (q, d) in enumerate(tree.d0:tree.d1)
+        n = tree.grids[d + 1].ax.n
+        key = (_ancestor(gl, id, d) - 1) * n * n + _ancestor(gt, c, d)
+        acc = resolved[q]
+        acc[key] = get(acc, key, 0.0) + exp2(-2 * (ℓ - d))
     end
-    tree.active = isempty(children) ? _Node[] : reduce(vcat, children)
-    tree.level = d + 1
-    _split!(tree)
+    return resolved
+end
+
+# The subtree file holds a small header, read alone by `_header`, then the subtree.  Written to
+# a temporary name and moved into place, so an interrupted write leaves the previous state.
+function _write(tree::UlamTree, sub::_Subtree)
+    hdr = (; root = sub.root, nactive = _nactive(sub), nresolved = sub.nresolved,
+             levelmin = isempty(sub.levels) ? typemax(Int) : minimum(sub.levels),
+             levelmax = sub.depth)
+    tmp = _rootfile(tree, sub.root) * ".tmp"
+    open(tmp, "w") do io
+        Serialization.serialize(io, hdr)
+        Serialization.serialize(io, sub)
+    end
+    mv(tmp, _rootfile(tree, sub.root); force = true)
+    return hdr
+end
+_header(tree::UlamTree, k::Int) = open(Serialization.deserialize, _rootfile(tree, k))
+function _read(tree::UlamTree, k::Int)
+    open(_rootfile(tree, k)) do io
+        Serialization.deserialize(io)
+        Serialization.deserialize(io)::_Subtree
+    end
+end
+
+# Set level, maxlevel and the counts from the headers; returns the active count per root.
+function _index!(tree::UlamTree)
+    hdrs = [_header(tree, k) for k in 1:_nroots(tree)]
+    tree.nactive = sum(h.nactive for h in hdrs)
+    tree.nresolved = sum(h.nresolved for h in hdrs)
+    tree.maxlevel = maximum(h.levelmax for h in hdrs)
+    lmin = minimum(h.levelmin for h in hdrs)
+    tree.level = lmin == typemax(Int) ? tree.maxlevel : lmin
+    return [h.nactive for h in hdrs]
+end
+
+"""
+    refine!(tree::UlamTree; targets=nothing) -> tree
+
+Quadrisect the uncertain cells, every subtree in turn: the candidates of a child are the
+cells met by the enclosure of its image among the children of its parent's candidates (above
+`d1`), or among its parent's candidates (at or below `d1`); a child with a single candidate
+at depth `d1` or finer is resolved.  With `targets`, a vector of booleans indexed as
+`build_uniform_partition(domain, d1)`, only the cells at depth `d1` or finer having a
+candidate among the marked targets are quadrisected, which refines the rows of `U` that are
+too heavy; cells coarser than `d1` are always quadrisected.
+"""
+function refine!(tree::UlamTree; targets::Union{Nothing,AbstractVector{Bool}} = nothing)
+    gt = _grid(tree, tree.d1)
+    marked = if targets === nothing
+        nothing
+    else
+        length(targets) == gt.ax.n * gt.ay.n ||
+            throw(ArgumentError("targets must have one entry per cell of depth $(tree.d1)"))
+        perm = _box_permutation(build_uniform_partition(tree.domain, tree.d1), gt)
+        [targets[perm[id]] for id in 1:length(perm)]   # by grid id
+    end
+    order = sortperm(_index!(tree); rev = true)         # largest subtrees first
+    _grid(tree, tree.maxlevel + 1)                       # grown here, read in the threads
+    Threads.@threads :dynamic for k in order
+        _header(tree, k).nactive == 0 && continue
+        sub = _refine(tree, _read(tree, k), marked)
+        sub === nothing || _write(tree, sub)
+    end
+    _index!(tree)
     return tree
 end
 
-# Move the resolved active cells (one candidate at depth d1, which needs level ≥ d1) to the
-# leaves.  A cell at a depth d < d1 with a single candidate at depth d keeps refining, since its
-# targets at depth d1 are not known yet.
-function _split!(tree::UlamTree)
-    tree.level >= tree.d1 || return tree
-    keep = _Node[]
-    for node in tree.active
-        isempty(node.cands) && error("a cell has no candidate target: the map leaves the domain")
-        length(node.cands) == 1 ? push!(tree.leaves, node) : push!(keep, node)
+# One quadrisection of the selected cells of a subtree; `nothing` if none was selected.
+function _refine(tree::UlamTree, sub::_Subtree, marked)
+    d0, d1, F, encl = tree.d0, tree.d1, tree.F, tree.enclosure_method
+    levels = Int[]; ids = Int[]; candptr = [1]; cands = Int[]
+    resolved = sub.resolved
+    nres = sub.nresolved
+    buf = Int[]
+    refined = false
+    depth = sub.depth
+    for k in 1:_nactive(sub)
+        ℓ, pid = sub.levels[k], sub.ids[k]
+        pc = view(sub.cands, sub.candptr[k]:sub.candptr[k + 1] - 1)
+        if ℓ >= d1 && marked !== nothing && !any(c -> marked[c], pc)
+            push!(levels, ℓ); push!(ids, pid); append!(cands, pc); push!(candptr, length(cands) + 1)
+            continue
+        end
+        refined = true
+        depth = max(depth, ℓ + 1)
+        gp, gs = tree.grids[ℓ + 1], tree.grids[ℓ + 2]       # parent's and children's grids
+        gc = tree.grids[min(ℓ + 1, d1) + 1]                 # children's target grid
+        ix, iy = _xy(gp, pid)
+        for (cx, cy) in ((2ix - 1, 2iy - 1), (2ix, 2iy - 1), (2ix - 1, 2iy), (2ix, 2iy))
+            X, Y = _image(F, _box(gs, cx, cy), encl)
+            _targets!(buf, gc, X, Y)
+            n0 = length(cands)
+            for i in buf
+                (ℓ + 1 <= d1 ? _ancestor(gc, i, ℓ) in pc : i in pc) && push!(cands, i)
+            end
+            m = length(cands) - n0
+            m == 0 && error("a cell at depth $(ℓ + 1) has no candidate target: the map leaves the domain")
+            cid = _id(gs, cx, cy)
+            if ℓ + 1 >= d1 && m == 1
+                _resolve!(tree, resolved, ℓ + 1, cid, cands[end])
+                resize!(cands, n0)
+                nres += 1
+            else
+                push!(levels, ℓ + 1); push!(ids, cid); push!(candptr, length(cands) + 1)
+            end
+        end
     end
-    tree.active = keep
-    return tree
+    refined || return nothing
+    return _Subtree(sub.root, levels, ids, candptr, cands, resolved, nres, depth)
 end
 
 """
     ulam_matrices(tree::UlamTree, d) -> (depth, partition, graph, L_lo, U)
+    ulam_matrices(tree::UlamTree, depths::AbstractRange) -> Vector of the above
 
-The graph and the Ulam matrix enclosure at depth `d`, `d0 ≤ d ≤ min(tree.level, d1)`, read off
-the current level: every cell of the tree, resolved or active, contributes its mass `4^{-(ℓ-d)}`
+The graph and the Ulam matrix enclosure at depth `d`, `d0 ≤ d ≤ min(tree.level, d1)`, read
+off the subtrees: every cell, resolved or uncertain, contributes its mass `4^{-(ℓ-d)}`
 relative to its ancestor at depth `d` to `L_lo` when the ancestors at depth `d` of its
 candidates are a single cell and to `U` for each of them otherwise.  Matrices are indexed as
-`partition = build_uniform_partition(domain, d)`.
+`partition = build_uniform_partition(domain, d)`.  Several depths are read in one pass over
+the subtrees.
 """
-function ulam_matrices(tree::UlamTree, d::Int)
-    tree.d0 <= d <= min(tree.level, tree.d1) ||
-        throw(ArgumentError("depth $d is not in $(tree.d0):$(min(tree.level, tree.d1))"))
-    gd = _grid(tree, d)
-    n = gd.ax.n * gd.ay.n
-    lo = [Dict{Int,Float64}() for _ in 1:n]
-    up = [Dict{Int,Float64}() for _ in 1:n]
-    for node in Iterators.flatten((tree.leaves, tree.active))
-        gl = _grid(tree, node.depth)
-        gt = _grid(tree, min(node.depth, tree.d1))
-        anc = unique(_ancestor(gt, c, d) for c in node.cands)
-        j = _ancestor(gl, node.id, d)
-        mass = 4.0^(-(node.depth - d))
-        if length(anc) == 1
-            lo[j][anc[1]] = get(lo[j], anc[1], 0.0) + mass
-        else
-            for i in anc
-                up[j][i] = get(up[j], i, 0.0) + mass
+ulam_matrices(tree::UlamTree, d::Int) = ulam_matrices(tree, d:d)[1]
+
+function ulam_matrices(tree::UlamTree, depths::AbstractRange{Int})
+    dmax = min(tree.level, tree.d1)
+    all(d -> tree.d0 <= d <= dmax, depths) ||
+        throw(ArgumentError("depths $depths are not in $(tree.d0):$dmax"))
+    _grid(tree, tree.maxlevel)
+    nroots = _nroots(tree)
+    parts = Vector{Tuple{Vector{Dict{Int,Float64}},Vector{Dict{Int,Float64}}}}(undef, nroots)
+    Threads.@threads :dynamic for k in 1:nroots
+        sub = _read(tree, k)
+        lo = [copy(sub.resolved[d - tree.d0 + 1]) for d in depths]
+        up = [Dict{Int,Float64}() for _ in depths]
+        anc = Int[]
+        for c in 1:_nactive(sub)
+            ℓ, id = sub.levels[c], sub.ids[c]
+            gl, gt = tree.grids[ℓ + 1], tree.grids[min(ℓ, tree.d1) + 1]
+            cs = view(sub.cands, sub.candptr[c]:sub.candptr[c + 1] - 1)
+            for (q, d) in enumerate(depths)
+                n = tree.grids[d + 1].ax.n
+                empty!(anc)
+                for i in cs
+                    a = _ancestor(gt, i, d)
+                    a in anc || push!(anc, a)
+                end
+                base = (_ancestor(gl, id, d) - 1) * n * n
+                mass = exp2(-2 * (ℓ - d))
+                acc = length(anc) == 1 ? lo[q] : up[q]
+                for a in anc
+                    acc[base + a] = get(acc, base + a, 0.0) + mass
+                end
             end
         end
+        parts[k] = (lo, up)
     end
-    I = Int[]; J = Int[]; V = Float64[]; UI = Int[]; UJ = Int[]; UV = Float64[]
-    for j in 1:n
-        for (i, v) in lo[j]
-            push!(I, i); push!(J, j); push!(V, v)
+    return map(enumerate(depths)) do (q, d)
+        gd = _grid(tree, d)
+        n = gd.ax.n * gd.ay.n
+        lo = Dict{Int,Float64}(); up = Dict{Int,Float64}()
+        for (los, ups) in parts
+            for (key, v) in los[q]
+                lo[key] = get(lo, key, 0.0) + v
+            end
+            for (key, v) in ups[q]
+                up[key] = get(up, key, 0.0) + v
+            end
         end
-        for (i, v) in up[j]
-            push!(UI, i); push!(UJ, j); push!(UV, v)
+        partition = build_uniform_partition(tree.domain, d)
+        perm = _box_permutation(partition, gd)         # perm[id] = box index in the partition
+        ij(key) = (perm[(key - 1) % n + 1], perm[(key - 1) ÷ n + 1])
+        I = Int[]; J = Int[]; V = Float64[]
+        for (key, v) in lo
+            i, j = ij(key); push!(I, i); push!(J, j); push!(V, v)
         end
+        UI = Int[]; UJ = Int[]; UV = Float64[]
+        for (key, v) in up
+            i, j = ij(key); push!(UI, i); push!(UJ, j); push!(UV, v)
+        end
+        L_lo = sparse(I, J, V, n, n)
+        U = sparse(UI, UJ, UV, n, n)
+        graph = sparse(vcat(I, UI), vcat(J, UJ), true, n, n)
+        (; depth = d, partition, graph, L_lo, U)
     end
-    partition = build_uniform_partition(tree.domain, d)
-    perm = _box_permutation(partition, gd)         # perm[id] = box index in the partition
-    L_lo = sparse(perm[I], perm[J], V, n, n)
-    U = sparse(perm[UI], perm[UJ], UV, n, n)
-    graph = sparse(perm[vcat(I, UI)], perm[vcat(J, UJ)], true, n, n)
-    return (; depth = d, partition, graph, L_lo, U)
 end
 
 """
     ulam_hierarchy(F, domain, d0, d1; leaf_depth=8, bc=:periodic,
-                   enclosure_method=first_order_enclosure)
+                   enclosure_method=first_order_enclosure, store=mktempdir())
 
 Transition graphs and Ulam matrix enclosures at the depths `d0:d1` (see the file docstring):
 a `UlamTree` refined to depth `d1 + leaf_depth`, read at each depth with `ulam_matrices`.
@@ -387,13 +534,14 @@ uncertain mass of a cell at depth `d` is at most the mass of a strip of width
 `diam(domain) 2^{-(d1 + leaf_depth)}` around the preimages of the grid lines of depth `d1`.
 """
 function ulam_hierarchy(F, domain::IntervalBox{2}, d0::Int, d1::Int; leaf_depth::Int = 8,
-        bc::Symbol = :periodic, enclosure_method = first_order_enclosure)
+        bc::Symbol = :periodic, enclosure_method = first_order_enclosure,
+        store::AbstractString = mktempdir())
     leaf_depth >= 0 || throw(ArgumentError("leaf_depth must be nonnegative"))
-    tree = UlamTree(F, domain, d0, d1; bc, enclosure_method)
-    while tree.level < d1 + leaf_depth
+    tree = UlamTree(F, domain, d0, d1; bc, enclosure_method, store)
+    while tree.level < d1 + leaf_depth && tree.nactive > 0
         refine!(tree)
     end
-    return [ulam_matrices(tree, d) for d in d0:d1]
+    return ulam_matrices(tree, d0:d1)
 end
 
 # Map the grid ids of g to the box indices of `partition` (built by build_uniform_partition).

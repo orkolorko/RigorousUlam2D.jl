@@ -821,60 +821,72 @@ function fibred_area(xonly::Int, xcomp, yof; Yof = nothing, bisect::Int = 12)
 end
 
 _width(X::Interval) = interval(sup(X)) - interval(inf(X))
+_clamp(V, y0, y1) = max(min(V, y1), y0)                # min and max of intervals end by end
 
+# The integral is a sum of signed pieces, taken off an explicit stack rather than by
+# recursion (four routines calling one another recursively were compiled with boxed
+# returns).  A piece is an interval `X` of x at a remaining bisection depth, at one of three
+# stages: 1, the test of `xcomp(X)` against the window; 2, the orientation of the fibre, which
+# turns the piece into two clamped inverses of opposite signs; 3, the integral of one clamped
+# inverse `yof(x, w)` with its sign.
 function _fibred_area(box::IntervalBox{2}, W::IntervalBox{2}, xonly, xcomp, yof, Yof, bisect)
     X0, Y0 = box[1], box[2]
     Wx, Wy = W[xonly], W[3 - xonly]
     y0, y1 = interval(inf(Y0)), interval(sup(Y0))
     a, b = interval(inf(Wy)), interval(sup(Wy))
-    total = _xpiece(X0, Wx, a, b, y0, y1, xcomp, yof, Yof, bisect)
+    total = interval(0.0)
+    stack = sizehint!(Tuple{Interval{Float64},Int,Int,Interval{Float64},Int}[], 4 * bisect + 4)
+    push!(stack, (X0, bisect, 1, a, 1))
+    while !isempty(stack)
+        X, depth, stage, w, sign = pop!(stack)
+        m = mid(X)
+        if stage == 1
+            P = xcomp(X)
+            isdisjoint_interval(P, Wx) && continue
+            if issubset_interval(P, Wx)
+                push!(stack, (X, depth, 2, a, 1))
+            elseif depth == 0
+                total += interval(0.0, 1.0) * _ybound(X, a, b, y0, y1, yof)
+            else
+                push!(stack, (interval(inf(X), m), depth - 1, 1, a, 1))
+                push!(stack, (interval(m, sup(X)), depth - 1, 1, a, 1))
+            end
+        elseif stage == 2
+            A, B = yof(X, a), yof(X, b)
+            if sup(A) <= inf(B)                         # increasing in y on X
+                push!(stack, (X, depth, 3, b, 1)); push!(stack, (X, depth, 3, a, -1))
+            elseif sup(B) <= inf(A)
+                push!(stack, (X, depth, 3, a, 1)); push!(stack, (X, depth, 3, b, -1))
+            elseif depth == 0
+                total += _ybound(X, a, b, y0, y1, yof)
+            else
+                push!(stack, (interval(inf(X), m), depth - 1, 2, a, 1))
+                push!(stack, (interval(m, sup(X)), depth - 1, 2, a, 1))
+            end
+        else                                            # ∫_X clamp(yof(x, w), y0, y1) dx
+            V = yof(X, w)
+            term = if sup(V) <= inf(y0)
+                _width(X) * y0
+            elseif inf(V) >= sup(y1)
+                _width(X) * y1
+            elseif Yof !== nothing && inf(V) >= inf(y0) && sup(V) <= sup(y1)
+                Yof(interval(sup(X)), w) - Yof(interval(inf(X)), w)
+            elseif depth == 0
+                _width(X) * _clamp(V, y0, y1)
+            else
+                push!(stack, (interval(inf(X), m), depth - 1, 3, w, sign))
+                push!(stack, (interval(m, sup(X)), depth - 1, 3, w, sign))
+                continue
+            end
+            total += sign == 1 ? term : -term
+        end
+    end
     return total / (_width(X0) * _width(Y0))
 end
-
-# ∫_X 1_{xcomp(x) ∈ Wx} len(x) dx
-function _xpiece(X, Wx, a, b, y0, y1, xcomp, yof, Yof, depth)
-    P = xcomp(X)
-    isdisjoint_interval(P, Wx) && return interval(0.0)
-    issubset_interval(P, Wx) && return _ypiece(X, a, b, y0, y1, yof, Yof, depth)
-    depth == 0 && return interval(0.0, 1.0) * _ybound(X, a, b, y0, y1, yof)
-    m = mid(X)
-    return _xpiece(interval(inf(X), m), Wx, a, b, y0, y1, xcomp, yof, Yof, depth - 1) +
-           _xpiece(interval(m, sup(X)), Wx, a, b, y0, y1, xcomp, yof, Yof, depth - 1)
-end
-
-# ∫_X len(x) dx, len(x) = |[y0, y1] ∩ [yof(x, a), yof(x, b)]| in either order
-function _ypiece(X, a, b, y0, y1, yof, Yof, depth)
-    A, B = yof(X, a), yof(X, b)
-    if sup(A) <= inf(B)                                 # increasing in y on X
-        return _cpiece(X, b, B, y0, y1, yof, Yof, depth) - _cpiece(X, a, A, y0, y1, yof, Yof, depth)
-    elseif sup(B) <= inf(A)
-        return _cpiece(X, a, A, y0, y1, yof, Yof, depth) - _cpiece(X, b, B, y0, y1, yof, Yof, depth)
-    end
-    depth == 0 && return _ybound(X, a, b, y0, y1, yof)
-    m = mid(X)
-    return _ypiece(interval(inf(X), m), a, b, y0, y1, yof, Yof, depth - 1) +
-           _ypiece(interval(m, sup(X)), a, b, y0, y1, yof, Yof, depth - 1)
-end
-
-_clamp(V, y0, y1) = max(min(V, y1), y0)                # min and max of intervals end by end
 
 function _ybound(X, a, b, y0, y1, yof)
     A, B = yof(X, a), yof(X, b)
     return _width(X) * (_clamp(max(A, B), y0, y1) - _clamp(min(A, B), y0, y1))
-end
-
-# ∫_X clamp(yof(x, w), y0, y1) dx, with V = yof(X, w)
-function _cpiece(X, w, V, y0, y1, yof, Yof, depth)
-    sup(V) <= inf(y0) && return _width(X) * y0
-    inf(V) >= sup(y1) && return _width(X) * y1
-    if Yof !== nothing && inf(V) >= inf(y0) && sup(V) <= sup(y1)
-        return Yof(interval(sup(X)), w) - Yof(interval(inf(X)), w)
-    end
-    depth == 0 && return _width(X) * _clamp(V, y0, y1)
-    m = mid(X)
-    Xl, Xr = interval(inf(X), m), interval(m, sup(X))
-    return _cpiece(Xl, w, yof(Xl, w), y0, y1, yof, Yof, depth - 1) +
-           _cpiece(Xr, w, yof(Xr, w), y0, y1, yof, Yof, depth - 1)
 end
 
 # Map the grid ids of g to the box indices of `partition` (built by build_uniform_partition).

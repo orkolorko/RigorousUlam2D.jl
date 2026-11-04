@@ -220,7 +220,7 @@ end
 
     @testset "fibred_area: the inverse of the fibre integrated in closed form" begin
         # (x, y) ↦ (x, x + y): the fraction of [0,1]² with x + y ∈ [1/2, 3/2] is 3/4
-        area = fibred_area(1, x -> x, (x, w) -> w - x; Yof = (x, w) -> w * x - x^2 / 2)
+        area = fibred_area(1, x -> x, (x, w) -> w - x; yint = (x, δ, w) -> δ * (w - x - δ / 2))
         box = IntervalBox(interval(0.0, 1.0), interval(0.0, 1.0))
         A = area(box, IntervalBox(interval(0.0, 1.0), interval(0.5, 1.5)))
         @test inf(A) <= 0.75 <= sup(A) && diam(A) <= 1e-12   # the clamps change side at a bisection point
@@ -231,12 +231,20 @@ end
         A3 = riemann(box, IntervalBox(interval(0.0, 1.0), interval(0.5, 1.5)))
         @test inf(A3) <= 0.75 <= sup(A3) && diam(A3) <= 2.0^-5
         @test_throws ArgumentError fibred_area(3, x -> x, (x, w) -> w)
+        # at the scale of a deep leaf the width of the enclosure is still 2^-bisect of the mass
+        harea = fibred_area(2, x -> (0.3 * 1.5x) / 0.5, (x, w) -> 3w - 2 + 2 * 1.4 * (1.5x)^2;
+                            yint = (x, δ, w) -> δ * ((3w - 2) + 2 * 1.4 * 1.5^2 * (3x^2 + 3x * δ + δ^2) / 3), bisect = 20)
+        h = 2.0^-19
+        leaf = IntervalBox(interval(-0.991658, -0.991658 + h), interval(-0.984375, -0.984375 + h))
+        W = IntervalBox(interval(0.265625 - 2, 0.2734375 - 2), interval(-0.8984375, -0.890625))   # x′ wrapped once
+        A = harea(leaf, W)
+        @test 0 < inf(A) < sup(A) < 1 && diam(A) <= 2.0^-19
     end
 
     @testset "areas at the leaves: the translation exact, Hénon tightened and consistent" begin
         c = 1 / 3
         shift_third = (x, y) -> (x + c, y)
-        area = fibred_area(1, x -> x + c, (x, w) -> w; Yof = (x, w) -> w * x, bisect = 30)
+        area = fibred_area(1, x -> x + c, (x, w) -> w; yint = (x, δ, w) -> w * δ, bisect = 30)
         for bc in (:periodic, :reflecting)
             r = ulam_hierarchy(shift_third, dom, 2, 3; leaf_depth = 0, bc, area)[2]   # no leaf refined
             n = 8
@@ -251,7 +259,7 @@ end
         # and the depth-3 enclosure is consistent with the aggregated depth-4 one
         henon = (x, y) -> ((1 - 1.4 * (1.5x)^2 + 0.5y) / 1.5, (0.3 * 1.5x) / 0.5)
         harea = fibred_area(2, x -> (0.3 * 1.5x) / 0.5, (x, w) -> 3w - 2 + 2 * 1.4 * (1.5x)^2;
-                            Yof = (x, w) -> (3w - 2) * x + 2 * 1.4 * 1.5^2 * x^3 / 3)
+                            yint = (x, δ, w) -> δ * ((3w - 2) + 2 * 1.4 * 1.5^2 * (3x^2 + 3x * δ + δ^2) / 3))
         domh = IntervalBox(interval(-1.0, 1.0), interval(-1.0, 1.0))
         h0 = ulam_hierarchy(henon, domh, 3, 4; leaf_depth = 3)
         ha = ulam_hierarchy(henon, domh, 3, 4; leaf_depth = 3, area = harea)

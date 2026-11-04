@@ -794,30 +794,35 @@ function ulam_hierarchy(F, domain::IntervalBox{2}, d0::Int, d1::Int; leaf_depth:
 end
 
 """
-    fibred_area(xonly, xcomp, yof; Yof=nothing, bisect=12) -> area
+    fibred_area(xonly, xcomp, yof; yint=nothing, bisect=12) -> area
 
 An `area` function for `UlamTree`, for a map `F(x, y)` whose component `xonly` (1 or 2)
 depends on `x` alone, `xcomp(x)`, and whose other component is strictly monotone in `y` for
-every fixed `x`, with `yof(x, w)` the `y` at which it equals `w` and `Yof(x, w)` an
-antiderivative in `x` of `yof(x, w)`.  The three are interval extensions: `xcomp` and `yof`
-take an interval `x`, `Yof` a thin one, and `w` is always thin.
+every fixed `x`, with `yof(x, w)` the `y` at which it equals `w` and `yint(x, δ, w)` the
+integral of `yof(·, w)` from `x` to `x + δ`.  The three are interval extensions: `xcomp` and
+`yof` take an interval `x`, `yint` thin `x` and `δ`, and `w` is always thin.  `yint` is to
+be written as an increment, not as the difference of an antiderivative at the two ends:
+the pieces are as small as `2^-bisect` of a leaf, and the difference of two values of the
+antiderivative loses the integral of such a piece in their rounding (for a polynomial
+antiderivative, expand in `δ`; for `1/x²`, write the difference over a common denominator).
 
 The fraction of a box `[x0, x1] × [y0, y1]` that `F` maps into a window `W` is the integral
 over `x` of the length of `[y0, y1] ∩ {y : F(x, y) ∈ W}`.  The part of `[x0, x1]` that
 `xcomp` sends into the window's `xonly` side is found by bisection, and on a piece inside it
 the length is the difference of the two inverses `yof(x, w)`, `w` the ends of the other
 side, each clamped to `[y0, y1]`: the integral of a clamped inverse over a piece is the
-piece's width times the clamp value where the inverse lies beyond it, and `Yof` at the ends
-of the piece where it lies within `[y0, y1]`.  A piece on which `xcomp` crosses the window's
-end, the inverse crosses `y0` or `y1`, or the monotonicity of `F` in `y` cannot be told, is
-bisected, up to `bisect` times from the whole box, and is then bounded by its width times the
-range of the integrand over it.  Without `Yof` every piece is bounded that way, which makes
-the enclosure a Riemann sum over `2^bisect` pieces.
+piece's width times the clamp value where the inverse lies beyond it, and `yint` over the
+piece where it lies within `[y0, y1]`, intersected with the piece's width times the range of
+the inverse.  A piece on which `xcomp` crosses the window's end, the inverse crosses `y0` or
+`y1`, or the monotonicity of `F` in `y` cannot be told, is bisected, up to `bisect` times
+from the whole box, and is then bounded by its width times the range of the integrand over
+it.  Without `yint` every piece is bounded that way, which makes the enclosure a Riemann sum
+over `2^bisect` pieces.
 """
-function fibred_area(xonly::Int, xcomp, yof; Yof = nothing, bisect::Int = 12)
+function fibred_area(xonly::Int, xcomp, yof; yint = nothing, bisect::Int = 12)
     xonly in (1, 2) || throw(ArgumentError("xonly must be 1 or 2, got $xonly"))
     bisect >= 0 || throw(ArgumentError("bisect must be nonnegative"))
-    return (box::IntervalBox{2}, W::IntervalBox{2}) -> _fibred_area(box, W, xonly, xcomp, yof, Yof, bisect)
+    return (box::IntervalBox{2}, W::IntervalBox{2}) -> _fibred_area(box, W, xonly, xcomp, yof, yint, bisect)
 end
 
 _width(X::Interval) = interval(sup(X)) - interval(inf(X))
@@ -829,7 +834,7 @@ _clamp(V, y0, y1) = max(min(V, y1), y0)                # min and max of interval
 # stages: 1, the test of `xcomp(X)` against the window; 2, the orientation of the fibre, which
 # turns the piece into two clamped inverses of opposite signs; 3, the integral of one clamped
 # inverse `yof(x, w)` with its sign.
-function _fibred_area(box::IntervalBox{2}, W::IntervalBox{2}, xonly, xcomp, yof, Yof, bisect)
+function _fibred_area(box::IntervalBox{2}, W::IntervalBox{2}, xonly, xcomp, yof, yint, bisect)
     X0, Y0 = box[1], box[2]
     Wx, Wy = W[xonly], W[3 - xonly]
     y0, y1 = interval(inf(Y0)), interval(sup(Y0))
@@ -869,8 +874,8 @@ function _fibred_area(box::IntervalBox{2}, W::IntervalBox{2}, xonly, xcomp, yof,
                 _width(X) * y0
             elseif inf(V) >= sup(y1)
                 _width(X) * y1
-            elseif Yof !== nothing && inf(V) >= inf(y0) && sup(V) <= sup(y1)
-                Yof(interval(sup(X)), w) - Yof(interval(inf(X)), w)
+            elseif yint !== nothing && inf(V) >= inf(y0) && sup(V) <= sup(y1)
+                intersect_interval(yint(interval(inf(X)), _width(X), w), _width(X) * V)
             elseif depth == 0
                 _width(X) * _clamp(V, y0, y1)
             else

@@ -183,4 +183,38 @@ end
         Llo = Matrix(r.L_lo)[perm, perm]; U = Matrix(r.U)[perm, perm]
         @test all(Llo .<= truth) && all(truth .<= Llo .+ U .+ 1e-15)
     end
+
+    @testset "the continuation in memory: the matrices of a deeper store, nothing written" begin
+        c = 1 / 3
+        shift_third = (x, y) -> (x + c, y)
+        tree = UlamTree(shift_third, dom, 2, 3)
+        @test_throws ArgumentError ulam_matrices(tree, 3)
+        r = ulam_matrices(tree, 2:3; level = 3)             # the level-3 matrices from the level-2 store
+        one_shot = ulam_hierarchy(shift_third, dom, 2, 3; leaf_depth = 0)
+        @test all(a.L_lo == b.L_lo && a.U == b.U for (a, b) in zip(r, one_shot))
+        @test tree.level == 2 && tree.nactive == 16
+        for _ in 1:3; refine!(tree); end
+        r = ulam_matrices(tree, 2:3; level = 9)
+        @test tree.level == 5 && tree.maxlevel == 5
+        deep = ulam_hierarchy(shift_third, dom, 2, 3; leaf_depth = 6)
+        @test all(a.L_lo == b.L_lo && a.U == b.U for (a, b) in zip(r, deep))
+        @test ulam_matrices(tree, 3; level = 4).U == ulam_matrices(tree, 3).U   # level ≤ tree.level: as read
+        # targeted: the same rows as a store refined twice with the same targets
+        heavy = [sup(b[2]) <= 0.5 for b in r[2].partition.boxes]
+        store = mktempdir()
+        tree2 = UlamTree(shift_third, dom, 2, 3; store)
+        for _ in 1:3; refine!(tree2); end
+        refine!(tree2; targets = heavy); refine!(tree2; targets = heavy)
+        @test tree2.level == 5 && tree2.maxlevel == 7
+        rt = ulam_matrices(tree, 2:3; level = ifelse.(heavy, 7, 5))
+        rs = ulam_matrices(tree2, 2:3)
+        @test all(a.L_lo == b.L_lo && a.U == b.U for (a, b) in zip(rt, rs))
+        @test ulam_matrices(tree2, 3; level = 9).U == ulam_matrices(tree, 3; level = 9).U
+        # raising the levels of the heavy rows only: the others keep their width
+        rows7 = vec(sum(rt[2].U; dims = 2))
+        r8 = ulam_matrices(tree, 3; level = ifelse.(heavy, 8, 5))
+        rows8 = vec(sum(r8.U; dims = 2))
+        @test all(rows8[heavy] .<= rows7[heavy] / 2 .+ 1e-15) && rows8[.!heavy] == rows7[.!heavy]
+        @test_throws ArgumentError ulam_matrices(tree, 3; level = [5, 6])
+    end
 end

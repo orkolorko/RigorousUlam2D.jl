@@ -217,4 +217,65 @@ end
         @test all(rows8[heavy] .<= rows7[heavy] / 2 .+ 1e-15) && rows8[.!heavy] == rows7[.!heavy]
         @test_throws ArgumentError ulam_matrices(tree, 3; level = [5, 6])
     end
+
+    @testset "fibred_area: the inverse of the fibre integrated in closed form" begin
+        # (x, y) ↦ (x, x + y): the fraction of [0,1]² with x + y ∈ [1/2, 3/2] is 3/4
+        area = fibred_area(1, x -> x, (x, w) -> w - x; Yof = (x, w) -> w * x - x^2 / 2)
+        box = IntervalBox(interval(0.0, 1.0), interval(0.0, 1.0))
+        A = area(box, IntervalBox(interval(0.0, 1.0), interval(0.5, 1.5)))
+        @test inf(A) <= 0.75 <= sup(A) && diam(A) <= 1e-12   # the clamps change side at a bisection point
+        @test sup(area(box, IntervalBox(interval(2.0, 3.0), interval(0.5, 1.5)))) == 0
+        A2 = area(box, IntervalBox(interval(0.25, 0.5), interval(0.0, 2.0)))   # 1/4, by bisection in x
+        @test inf(A2) <= 0.25 <= sup(A2) && diam(A2) <= 2.0^-10
+        riemann = fibred_area(1, x -> x, (x, w) -> w - x; bisect = 6)         # no antiderivative
+        A3 = riemann(box, IntervalBox(interval(0.0, 1.0), interval(0.5, 1.5)))
+        @test inf(A3) <= 0.75 <= sup(A3) && diam(A3) <= 2.0^-5
+        @test_throws ArgumentError fibred_area(3, x -> x, (x, w) -> w)
+    end
+
+    @testset "areas at the leaves: the translation exact, Hénon tightened and consistent" begin
+        c = 1 / 3
+        shift_third = (x, y) -> (x + c, y)
+        area = fibred_area(1, x -> x + c, (x, w) -> w; Yof = (x, w) -> w * x, bisect = 30)
+        for bc in (:periodic, :reflecting)
+            r = ulam_hierarchy(shift_third, dom, 2, 3; leaf_depth = 0, bc, area)[2]   # no leaf refined
+            n = 8
+            perm = boxperm(r.partition, n)
+            Lt = Float64.(shift_matrix(Rational{BigInt}(c), n, bc))
+            Llo = Matrix(r.L_lo)[perm, perm]; U = Matrix(r.U)[perm, perm]
+            @test all(Llo .<= Lt) && all(Lt .<= Llo .+ U)
+            @test maximum(U) <= 1e-8                      # the ends x = g - 1/3 are bisected 30 times
+            @test all(sum(Llo; dims = 1) .<= 1) && all(sum(Llo .+ U; dims = 1) .>= 1)
+        end
+        # Hénon: with areas the enclosure lies inside the one without, column sums still bracket 1,
+        # and the depth-3 enclosure is consistent with the aggregated depth-4 one
+        henon = (x, y) -> ((1 - 1.4 * (1.5x)^2 + 0.5y) / 1.5, (0.3 * 1.5x) / 0.5)
+        harea = fibred_area(2, x -> (0.3 * 1.5x) / 0.5, (x, w) -> 3w - 2 + 2 * 1.4 * (1.5x)^2;
+                            Yof = (x, w) -> (3w - 2) * x + 2 * 1.4 * 1.5^2 * x^3 / 3)
+        domh = IntervalBox(interval(-1.0, 1.0), interval(-1.0, 1.0))
+        h0 = ulam_hierarchy(henon, domh, 3, 4; leaf_depth = 3)
+        ha = ulam_hierarchy(henon, domh, 3, 4; leaf_depth = 3, area = harea)
+        for (r0, r) in zip(h0, ha)
+            @test all(r.L_lo .>= r0.L_lo .- 1e-15) && all(r.L_lo .+ r.U .<= r0.L_lo .+ r0.U .+ 1e-15)
+            @test maximum(sum(r.U; dims = 1)) <= maximum(sum(r0.U; dims = 1)) / 50
+            @test all(sum(r.L_lo; dims = 1) .<= 1) && all(sum(r.L_lo .+ r.U; dims = 1) .>= 1)
+            @test r.graph == (r.L_lo .+ r.U .> 0)
+        end
+        p3 = boxperm(ha[1].partition, 8); p4 = boxperm(ha[2].partition, 16)
+        A3 = Matrix(ha[1].L_lo)[p3, p3]; B3 = Matrix(ha[1].L_lo .+ ha[1].U)[p3, p3]
+        A4 = Matrix(ha[2].L_lo)[p4, p4]; B4 = Matrix(ha[2].L_lo .+ ha[2].U)[p4, p4]
+        agg(M) = begin
+            S = zeros(64, 64)
+            for jy in 1:16, jx in 1:16, iy in 1:16, ix in 1:16
+                S[((iy + 1) ÷ 2 - 1) * 8 + (ix + 1) ÷ 2, ((jy + 1) ÷ 2 - 1) * 8 + (jx + 1) ÷ 2] +=
+                    M[(iy - 1) * 16 + ix, (jy - 1) * 16 + jx] / 4
+            end
+            S
+        end
+        @test all(A3 .>= agg(A4) .- 1e-12) && all(B3 .<= agg(B4) .+ 1e-12)
+        # the same areas through the in-memory descent of a stored tree
+        tree = UlamTree(henon, domh, 3, 4; area = harea)
+        rt = ulam_matrices(tree, 3:4; level = 7)
+        @test all(all(abs.(a.L_lo .- b.L_lo) .<= 4e-15) && all(abs.(a.U .- b.U) .<= 4e-15) for (a, b) in zip(rt, ha))
+    end
 end

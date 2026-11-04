@@ -643,6 +643,18 @@ function _refine(tree::UlamTree, sub::_Subtree, marked, F, encl)
     return _Subtree(sub.root, levels, ids, candptr, cands, resolved, nres, depth)
 end
 
+# The cells `cells` of the frontier of `sub` read into `acc`.  One call per chunk: `F`, `encl`
+# and `area` come from the untyped fields of the tree, and a call through them is dispatched
+# at run time and boxes its arguments, so it is made once here and not once per cell.
+function _read_chunk!(acc::_Acc, tree::UlamTree, F, encl, area, depths, sub::_Subtree, cells, lmax::Int, marked)
+    s = _scratch()
+    for cell in cells
+        pc = view(sub.cands, sub.candptr[cell]:sub.candptr[cell + 1] - 1)
+        _descend!(acc, tree, F, encl, area, depths, sub.levels[cell], sub.ids[cell], pc, lmax, marked, s)
+    end
+    return acc
+end
+
 # Scratch vectors of one in-memory descent: the stack of pending cells (level, id, and the
 # range `p:q` of their candidates in `scands`) and the buffers of `_children!`.
 _scratch() = (; slevels = Int[], sids = Int[], sp = Int[], sq = Int[], scands = Int[],
@@ -724,11 +736,7 @@ function ulam_matrices(tree::UlamTree, depths::AbstractRange{Int};
             # named apart from the accumulator of the root below: a name assigned in both
             # scopes would be one variable, shared by the chunks
             cacc = _acc(depths)
-            s = _scratch()
-            for cell in bounds[c] + 1:bounds[c + 1]
-                pc = view(sub.cands, sub.candptr[cell]:sub.candptr[cell + 1] - 1)
-                _descend!(cacc, tree, F, encl, area, depths, sub.levels[cell], sub.ids[cell], pc, lmax, marked, s)
-            end
+            _read_chunk!(cacc, tree, F, encl, area, depths, sub, bounds[c] + 1:bounds[c + 1], lmax, marked)
             cparts[c] = cacc
         end
         racc = _acc(depths, [copy(sub.resolved[d - tree.d0 + 1]) for d in depths])

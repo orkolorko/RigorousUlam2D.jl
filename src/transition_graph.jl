@@ -52,7 +52,7 @@ of a box is the intersection of the natural interval extension of `F` with the e
 `enclosure_method`; both enclose the true image, so does their intersection.
 """
 
-export transition_graph, ulam_hierarchy, UlamTree, refine!, ulam_matrices, fibred_area
+export transition_graph, ulam_hierarchy, UlamTree, refine!, repair!, ulam_matrices, fibred_area
 
 # ---------------------------------------------------------------------------------------------
 # One axis of a grid: n cells of width dx on [x0, x0 + L], with the grid lines x0 + i dx exact.
@@ -361,21 +361,81 @@ function UlamTree(F, domain::IntervalBox{2}, d0::Int, d1::Int;
         mkpath(tree.store)
         g0 = grids[d0 + 1]
         Threads.@threads :dynamic for k in 1:_nroots(tree)
-            X, Y = _image(F, _box(g0, _xy(g0, k)...), enclosure_method)
-            cands = _targets!(Int[], g0, X, Y)
-            isempty(cands) && error("cell $k of depth $d0 has no candidate target: the map leaves the domain")
-            resolved = [Dict{Int,Float64}() for _ in d0:d1]
-            if d0 == d1 && length(cands) == 1
-                _resolve!(tree, resolved, d0, k, cands[1])
-                _write(tree, _Subtree(k, Int[], Int[], [1], Int[], resolved, 1, d0))
-            else
-                _write(tree, _Subtree(k, [d0], [k], [1, length(cands) + 1], cands, resolved, 0, d0))
-            end
+            _write(tree, _root(tree, k, F, enclosure_method))
         end
         Serialization.serialize(metafile, meta)    # written last: a half-built store is rebuilt
     end
     _index!(tree)
     return tree
+end
+
+# The subtree of the cell `k` of depth d0 before any refinement.
+function _root(tree::UlamTree, k::Int, F, encl)
+    d0, d1 = tree.d0, tree.d1
+    g0 = tree.grids[d0 + 1]
+    X, Y = _image(F, _box(g0, _xy(g0, k)...), encl)
+    cands = _targets!(Int[], g0, X, Y)
+    isempty(cands) && error("cell $k of depth $d0 has no candidate target: the map leaves the domain")
+    resolved = [Dict{Int,Float64}() for _ in d0:d1]
+    if d0 == d1 && length(cands) == 1
+        _resolve!(tree, resolved, d0, k, cands[1])
+        return _Subtree(k, Int[], Int[], [1], Int[], resolved, 1, d0)
+    end
+    return _Subtree(k, [d0], [k], [1, length(cands) + 1], cands, resolved, 0, d0)
+end
+
+# Whether a subtree read from disk is well formed: the frontier arrays agree in length, the
+# candidate pointers are a partition of the candidates, and every depth, cell and candidate
+# is in range.
+function _consistent(tree::UlamTree, sub::_Subtree)
+    n = length(sub.ids)
+    length(sub.levels) == n && length(sub.candptr) == n + 1 || return false
+    sub.candptr[1] == 1 && sub.candptr[end] == length(sub.cands) + 1 && issorted(sub.candptr) || return false
+    1 <= sub.root <= _nroots(tree) && sub.depth >= tree.d0 && sub.nresolved >= 0 || return false
+    length(sub.resolved) == tree.d1 - tree.d0 + 1 || return false
+    nt = 4^tree.d1
+    for k in 1:n
+        ℓ = sub.levels[k]
+        tree.d0 <= ℓ <= sub.depth && 1 <= sub.ids[k] <= 4^ℓ || return false
+        sub.candptr[k + 1] > sub.candptr[k] || return false
+        nc = 4^min(ℓ, tree.d1)
+        for c in sub.candptr[k]:sub.candptr[k + 1] - 1
+            1 <= sub.cands[c] <= min(nc, nt) || return false
+        end
+    end
+    return true
+end
+
+"""
+    repair!(tree::UlamTree; level=tree.level) -> Vector{Int}
+
+Read every subtree file and rebuild those that cannot be read or are not well formed, from
+their cell of depth `d0` refined uniformly to the depth `level`; returns the roots rebuilt.
+A subtree is written whole to a temporary file and renamed, but a file system may still
+lose the data of a renamed file when the disk fills during its writeback, which is how a
+truncated subtree arises.
+"""
+function repair!(tree::UlamTree; level::Int = tree.level)
+    F, encl = tree.F, tree.enclosure_method
+    _grid(tree, max(level, tree.maxlevel) + 1)
+    bad = Int[]
+    lk = ReentrantLock()
+    Threads.@threads :dynamic for k in 1:_nroots(tree)
+        ok = try
+            _consistent(tree, _read(tree, k))
+        catch
+            false
+        end
+        ok && continue
+        @lock lk push!(bad, k)
+        sub = _root(tree, k, F, encl)
+        while !isempty(sub.levels) && minimum(sub.levels) < level
+            sub = _refine(tree, sub, nothing, F, encl)
+        end
+        _write(tree, sub)
+    end
+    _index!(tree)
+    return sort!(bad)
 end
 
 function _grid(tree::UlamTree, d::Int)

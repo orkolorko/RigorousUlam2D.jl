@@ -184,6 +184,23 @@ end
         @test all(Llo .<= truth) && all(truth .<= Llo .+ U .+ 1e-15)
     end
 
+    @testset "repair!: a truncated subtree file is rebuilt to the level of the store" begin
+        c = 1 / 3
+        shift_third = (x, y) -> (x + c, y)
+        store = mktempdir()
+        tree = UlamTree(shift_third, dom, 2, 3; store)
+        for _ in 1:3; refine!(tree); end
+        r0 = ulam_matrices(tree, 2:3)
+        @test repair!(tree) == Int[]
+        f = joinpath(store, "root5.jls")
+        open(f, "r+") do io; truncate(io, filesize(f) ÷ 2); end
+        @test_throws Exception ulam_matrices(tree, 3)
+        @test repair!(tree) == [5]
+        @test tree.level == 5 && tree.maxlevel == 5
+        r1 = ulam_matrices(tree, 2:3)
+        @test all(a.L_lo == b.L_lo && a.U == b.U for (a, b) in zip(r0, r1))
+    end
+
     @testset "the continuation in memory: the matrices of a deeper store, nothing written" begin
         c = 1 / 3
         shift_third = (x, y) -> (x + c, y)

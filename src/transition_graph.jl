@@ -535,7 +535,7 @@ function _areas!(s, tree::UlamTree, F, encl, area, gl::_Grid, gt::_Grid, id::Int
         ix, iy = _xy(gt, c)
         _windows!(s.wx, gt.ax, X, ix)
         _windows!(s.wy, gt.ay, Y, iy)
-        s.A[t] = _area(area, box, s.wx, s.wy)
+        s.A[t] = _area(area, box, s.wx, s.wy, s)
     end
     return true
 end
@@ -543,16 +543,16 @@ end
 # The fraction of `box` mapped into the union of the windows `wxs × wys`: the sum over the
 # pairs, each read through the window inside both endpoint enclosures and the one around
 # them, since the fraction grows with the window.
-function _area(area, box::IntervalBox{2}, wxs::Vector{_Window}, wys::Vector{_Window})
+function _area(area, box::IntervalBox{2}, wxs::Vector{_Window}, wys::Vector{_Window}, s)
     A = interval(0.0)
     for (αx, βx) in wxs, (αy, βy) in wys
         outer = IntervalBox(interval(inf(αx), sup(βx)), interval(inf(αy), sup(βy)))
         if isthin(αx) && isthin(βx) && isthin(αy) && isthin(βy)
-            A += area(box, outer)
+            A += _call(area, box, outer, s)
         else
-            hi = sup(area(box, outer))
+            hi = sup(_call(area, box, outer, s))
             lo = sup(αx) <= inf(βx) && sup(αy) <= inf(βy) ?
-                inf(area(box, IntervalBox(interval(sup(αx), inf(βx)), interval(sup(αy), inf(βy))))) : 0.0
+                inf(_call(area, box, IntervalBox(interval(sup(αx), inf(βx)), interval(sup(αy), inf(βy))), s)) : 0.0
             A += interval(min(lo, hi), hi)
         end
     end
@@ -716,10 +716,12 @@ function _read_chunk!(acc::_Acc, tree::UlamTree, F, encl, area, depths, sub::_Su
 end
 
 # Scratch vectors of one in-memory descent: the stack of pending cells (level, id, and the
-# range `p:q` of their candidates in `scands`) and the buffers of `_children!`.
+# range `p:q` of their candidates in `scands`), the buffers of `_children!` and `_areas!`, and
+# the stack of `_fibred_area`.
 _scratch() = (; slevels = Int[], sids = Int[], sp = Int[], sq = Int[], scands = Int[],
                 buf = Int[], cids = Int[], cptr = Int[], ccands = Int[], anc = Int[],
-                A = Interval{Float64}[], Aa = Interval{Float64}[], wx = _Window[], wy = _Window[])
+                A = Interval{Float64}[], Aa = Interval{Float64}[], wx = _Window[], wy = _Window[],
+                stack = _Piece[])
 
 # Descend the cell `id` at depth ℓ with candidates `pc`, depth first in memory and writing
 # nothing, down to the depth `level`, and read the leaves into `acc` with `_read_cell!`:
@@ -882,8 +884,24 @@ over `2^bisect` pieces.
 function fibred_area(xonly::Int, xcomp, yof; yint = nothing, bisect::Int = 12)
     xonly in (1, 2) || throw(ArgumentError("xonly must be 1 or 2, got $xonly"))
     bisect >= 0 || throw(ArgumentError("bisect must be nonnegative"))
-    return (box::IntervalBox{2}, W::IntervalBox{2}) -> _fibred_area(box, W, xonly, xcomp, yof, yint, bisect)
+    return _FibredArea(xonly, xcomp, yof, yint, bisect)
 end
+
+# The `area` function of `fibred_area`, a callable; called by the tree through `_call` with
+# its scratch, so that the stack of pieces is not allocated at every call.
+struct _FibredArea{XC,YO,YI}
+    xonly::Int
+    xcomp::XC
+    yof::YO
+    yint::YI
+    bisect::Int
+end
+const _Piece = Tuple{Interval{Float64},Int,Int,Interval{Float64},Int}
+(a::_FibredArea)(box::IntervalBox{2}, W::IntervalBox{2}) =
+    _fibred_area(box, W, a.xonly, a.xcomp, a.yof, a.yint, a.bisect, sizehint!(_Piece[], 4 * a.bisect + 4))
+_call(a::_FibredArea, box::IntervalBox{2}, W::IntervalBox{2}, s) =
+    _fibred_area(box, W, a.xonly, a.xcomp, a.yof, a.yint, a.bisect, s.stack)
+_call(area, box::IntervalBox{2}, W::IntervalBox{2}, s) = area(box, W)
 
 _width(X::Interval) = interval(sup(X)) - interval(inf(X))
 _clamp(V, y0, y1) = max(min(V, y1), y0)                # min and max of intervals end by end
@@ -894,13 +912,13 @@ _clamp(V, y0, y1) = max(min(V, y1), y0)                # min and max of interval
 # stages: 1, the test of `xcomp(X)` against the window; 2, the orientation of the fibre, which
 # turns the piece into two clamped inverses of opposite signs; 3, the integral of one clamped
 # inverse `yof(x, w)` with its sign.
-function _fibred_area(box::IntervalBox{2}, W::IntervalBox{2}, xonly, xcomp, yof, yint, bisect)
+function _fibred_area(box::IntervalBox{2}, W::IntervalBox{2}, xonly, xcomp, yof, yint, bisect, stack::Vector{_Piece})
     X0, Y0 = box[1], box[2]
     Wx, Wy = W[xonly], W[3 - xonly]
     y0, y1 = interval(inf(Y0)), interval(sup(Y0))
     a, b = interval(inf(Wy)), interval(sup(Wy))
     total = interval(0.0)
-    stack = sizehint!(Tuple{Interval{Float64},Int,Int,Interval{Float64},Int}[], 4 * bisect + 4)
+    empty!(stack)
     push!(stack, (X0, bisect, 1, a, 1))
     while !isempty(stack)
         X, depth, stage, w, sign = pop!(stack)

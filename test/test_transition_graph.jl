@@ -256,6 +256,34 @@ end
         W = IntervalBox(interval(0.265625 - 2, 0.2734375 - 2), interval(-0.8984375, -0.890625))   # x′ wrapped once
         A = harea(leaf, W)
         @test 0 < inf(A) < sup(A) < 1 && diam(A) <= 2.0^-19
+        # with the inverse of the x-only component the crossings are cut, not bisected
+        xarea = fibred_area(1, x -> x, (x, w) -> w - x; yint = (x, δ, w) -> δ * (w - x - δ / 2), xinv = (X, w) -> w)
+        A2x = xarea(box, IntervalBox(interval(0.25, 0.5), interval(0.0, 2.0)))
+        @test inf(A2x) <= 0.25 <= sup(A2x) && diam(A2x) <= 1e-15
+        hxinv = (X, w) -> w * 0.5 / (0.3 * 1.5)
+        hareax = fibred_area(2, x -> (0.3 * 1.5x) / 0.5, (x, w) -> 3w - 2 + 2 * 1.4 * (1.5x)^2;
+                             yint = (x, δ, w) -> δ * ((3w - 2) + 2 * 1.4 * 1.5^2 * (3x^2 + 3x * δ + δ^2) / 3), xinv = hxinv, bisect = 20)
+        Ax = hareax(leaf, W)                             # no crossing in x here: the same enclosure
+        @test isequal_interval(A, Ax)
+        # a Lorenz leaf at level 14 with a window edge in x inside its image: 2^-30 by bisection,
+        # the width of the inverse's enclosure by the cut; with a y edge too, the floor of the clamps
+        ρ, c0, c1 = 1.3, -0.25, 0.25
+        lxcomp = x -> (ax = abs(x); inf(x) >= 0 ? -ρ * ax^0.5 + 0.5 : ρ * ax^0.5 - 0.5)
+        lyof = (x, w) -> (ax = abs(x); inf(x) >= 0 ? (w - c0) / ax^3 : (c1 - w) / ax^3)
+        lyint = (x, δ, w) -> (inf(x) >= 0 ? (w - c0) : -(c1 - w)) * δ * (2x + δ) / (2 * x^2 * (x + δ)^2)
+        lxinv = (X, w) -> inf(X) >= 0 ? ((0.5 - w) / ρ)^2 : -((w + 0.5) / ρ)^2
+        h = 2.0^-14; x0 = floor(0.077 / h) * h
+        lleaf = IntervalBox(interval(x0, x0 + h), interval(0.1, 0.1 + h))
+        X = lxcomp(lleaf[1]); Y = lleaf[2] * lleaf[1]^3 + c0
+        g = 2.0^-12; mx = mid(X); my = mid(Y)
+        Wx = IntervalBox(interval(mx, mx + g), interval(floor(inf(Y) / g) * g, floor(inf(Y) / g) * g + g))
+        Wxy = IntervalBox(interval(mx, mx + g), interval(my, my + g))
+        for (Wl, tol) in ((Wx, 1e-12), (Wxy, 3e-11))
+            Ab = fibred_area(1, lxcomp, lyof; yint = lyint, bisect = 30)(lleaf, Wl)
+            Ac = fibred_area(1, lxcomp, lyof; yint = lyint, xinv = lxinv, bisect = 30)(lleaf, Wl)
+            @test !isdisjoint_interval(Ab, Ac) && diam(Ab) <= 2.0^-29 && diam(Ac) <= tol
+        end
+        @test diam(fibred_area(1, lxcomp, lyof; yint = lyint, bisect = 30)(lleaf, Wx)) >= 2.0^-31
     end
 
     @testset "areas at the leaves: the translation exact, Hénon tightened and consistent" begin
@@ -280,11 +308,19 @@ end
         domh = IntervalBox(interval(-1.0, 1.0), interval(-1.0, 1.0))
         h0 = ulam_hierarchy(henon, domh, 3, 4; leaf_depth = 3)
         ha = ulam_hierarchy(henon, domh, 3, 4; leaf_depth = 3, area = harea)
-        for (r0, r) in zip(h0, ha)
+        hareax = fibred_area(2, x -> (0.3 * 1.5x) / 0.5, (x, w) -> 3w - 2 + 2 * 1.4 * (1.5x)^2;
+                             yint = (x, δ, w) -> δ * ((3w - 2) + 2 * 1.4 * 1.5^2 * (3x^2 + 3x * δ + δ^2) / 3),
+                             xinv = (X, w) -> w * 0.5 / (0.3 * 1.5))
+        hax = ulam_hierarchy(henon, domh, 3, 4; leaf_depth = 3, area = hareax)
+        for (r0, r, rx) in zip(h0, ha, hax)
             @test all(r.L_lo .>= r0.L_lo .- 1e-15) && all(r.L_lo .+ r.U .<= r0.L_lo .+ r0.U .+ 1e-15)
             @test maximum(sum(r.U; dims = 1)) <= maximum(sum(r0.U; dims = 1)) / 50
             @test all(sum(r.L_lo; dims = 1) .<= 1) && all(sum(r.L_lo .+ r.U; dims = 1) .>= 1)
             @test r.graph == (r.L_lo .+ r.U .> 0)
+            # the cut at the crossings: inside the bisected enclosure, and narrower
+            @test all(rx.L_lo .>= r.L_lo .- 1e-15) && all(rx.L_lo .+ rx.U .<= r.L_lo .+ r.U .+ 1e-15)
+            @test maximum(sum(rx.U; dims = 1)) <= maximum(sum(r.U; dims = 1)) / 50
+            @test all(sum(rx.L_lo; dims = 1) .<= 1) && all(sum(rx.L_lo .+ rx.U; dims = 1) .>= 1)
         end
         p3 = boxperm(ha[1].partition, 8); p4 = boxperm(ha[2].partition, 16)
         A3 = Matrix(ha[1].L_lo)[p3, p3]; B3 = Matrix(ha[1].L_lo .+ ha[1].U)[p3, p3]

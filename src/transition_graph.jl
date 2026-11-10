@@ -856,13 +856,15 @@ function ulam_hierarchy(F, domain::IntervalBox{2}, d0::Int, d1::Int; leaf_depth:
 end
 
 """
-    fibred_area(xonly, xcomp, yof; yint=nothing, bisect=12) -> area
+    fibred_area(xonly, xcomp, yof; yint=nothing, xinv=nothing, bisect=12) -> area
 
 An `area` function for `UlamTree`, for a map `F(x, y)` whose component `xonly` (1 or 2)
 depends on `x` alone, `xcomp(x)`, and whose other component is strictly monotone in `y` for
-every fixed `x`, with `yof(x, w)` the `y` at which it equals `w` and `yint(x, δ, w)` the
-integral of `yof(·, w)` from `x` to `x + δ`.  The three are interval extensions: `xcomp` and
-`yof` take an interval `x`, `yint` thin `x` and `δ`, and `w` is always thin.  `yint` is to
+every fixed `x`, with `yof(x, w)` the `y` at which it equals `w`, `yint(x, δ, w)` the
+integral of `yof(·, w)` from `x` to `x + δ`, and `xinv(X, w)` an interval holding every `x`
+in `X` at which `xcomp(x) = w` (empty or wider when convenient).  The four are interval
+extensions: `xcomp` and `yof` take an interval `x`, `yint` thin `x` and `δ`, `xinv` takes
+the interval `X` (to choose a branch of the inverse) and `w` is always thin.  `yint` is to
 be written as an increment, not as the difference of an antiderivative at the two ends:
 the pieces are as small as `2^-bisect` of a leaf, and the difference of two values of the
 antiderivative loses the integral of such a piece in their rounding (for a polynomial
@@ -880,27 +882,36 @@ the inverse.  A piece on which `xcomp` crosses the window's end, the inverse cro
 from the whole box, and is then bounded by its width times the range of the integrand over
 it.  Without `yint` every piece is bounded that way, which makes the enclosure a Riemann sum
 over `2^bisect` pieces.
+
+With `xinv` a piece on which `xcomp` crosses the window's end is cut instead of bisected:
+the crossings with the two ends are enclosed by `xinv`, and between them, `xcomp` being
+continuous, the piece lies within or outside the window throughout, which is read at one
+point; the crossing enclosures are bounded by their width times the range of the integrand.
+The residual of such a crossing is then the width of `xinv`'s enclosure in place of
+`2^-bisect` of the box, and the box is bisected only where the inverse crosses `y0` or `y1`
+(where a piece cannot be read, it is bisected as without `xinv`).
 """
-function fibred_area(xonly::Int, xcomp, yof; yint = nothing, bisect::Int = 12)
+function fibred_area(xonly::Int, xcomp, yof; yint = nothing, xinv = nothing, bisect::Int = 12)
     xonly in (1, 2) || throw(ArgumentError("xonly must be 1 or 2, got $xonly"))
     bisect >= 0 || throw(ArgumentError("bisect must be nonnegative"))
-    return _FibredArea(xonly, xcomp, yof, yint, bisect)
+    return _FibredArea(xonly, xcomp, yof, yint, xinv, bisect)
 end
 
 # The `area` function of `fibred_area`, a callable; called by the tree through `_call` with
 # its scratch, so that the stack of pieces is not allocated at every call.
-struct _FibredArea{XC,YO,YI}
+struct _FibredArea{XC,YO,YI,XI}
     xonly::Int
     xcomp::XC
     yof::YO
     yint::YI
+    xinv::XI
     bisect::Int
 end
 const _Piece = Tuple{Interval{Float64},Int,Int,Interval{Float64},Int}
 (a::_FibredArea)(box::IntervalBox{2}, W::IntervalBox{2}) =
-    _fibred_area(box, W, a.xonly, a.xcomp, a.yof, a.yint, a.bisect, sizehint!(_Piece[], 4 * a.bisect + 4))
+    _fibred_area(box, W, a.xonly, a.xcomp, a.yof, a.yint, a.xinv, a.bisect, sizehint!(_Piece[], 4 * a.bisect + 4))
 _call(a::_FibredArea, box::IntervalBox{2}, W::IntervalBox{2}, s) =
-    _fibred_area(box, W, a.xonly, a.xcomp, a.yof, a.yint, a.bisect, s.stack)
+    _fibred_area(box, W, a.xonly, a.xcomp, a.yof, a.yint, a.xinv, a.bisect, s.stack)
 _call(area, box::IntervalBox{2}, W::IntervalBox{2}, s) = area(box, W)
 
 _width(X::Interval) = interval(sup(X)) - interval(inf(X))
@@ -912,7 +923,7 @@ _clamp(V, y0, y1) = max(min(V, y1), y0)                # min and max of interval
 # stages: 1, the test of `xcomp(X)` against the window; 2, the orientation of the fibre, which
 # turns the piece into two clamped inverses of opposite signs; 3, the integral of one clamped
 # inverse `yof(x, w)` with its sign.
-function _fibred_area(box::IntervalBox{2}, W::IntervalBox{2}, xonly, xcomp, yof, yint, bisect, stack::Vector{_Piece})
+function _fibred_area(box::IntervalBox{2}, W::IntervalBox{2}, xonly, xcomp, yof, yint, xinv, bisect, stack::Vector{_Piece})
     X0, Y0 = box[1], box[2]
     Wx, Wy = W[xonly], W[3 - xonly]
     y0, y1 = interval(inf(Y0)), interval(sup(Y0))
@@ -928,6 +939,8 @@ function _fibred_area(box::IntervalBox{2}, W::IntervalBox{2}, xonly, xcomp, yof,
             isdisjoint_interval(P, Wx) && continue
             if issubset_interval(P, Wx)
                 push!(stack, (X, depth, 2, a, 1))
+            elseif xinv !== nothing && (cut = _cut!(stack, X, depth, Wx, a, b, y0, y1, xcomp, xinv, yof)) !== nothing
+                total += cut
             elseif depth == 0
                 total += interval(0.0, 1.0) * _ybound(X, a, b, y0, y1, yof)
             else
@@ -965,6 +978,48 @@ function _fibred_area(box::IntervalBox{2}, W::IntervalBox{2}, xonly, xcomp, yof,
         end
     end
     return total / (_width(X0) * _width(Y0))
+end
+
+# Stage 1 of a piece `X` through `xinv`: the crossings of `xcomp` with the ends of `Wx` lie in
+# `C1`, `C2` (sorted, an empty one last), and on each gap between them, `xcomp` taking
+# neither end value there, the piece is inside the window throughout or outside throughout,
+# which is read at the gap's midpoint; the gaps inside go to stage 2 and the crossing
+# enclosures are bounded like a piece at depth 0.  Returns the bound of the crossings, or
+# `nothing`, with nothing pushed, when a gap cannot be read (its midpoint is not interior,
+# or `xcomp` there is not decided against the window), and the piece is bisected instead.
+function _cut!(stack, X, depth, Wx, a, b, y0, y1, xcomp, xinv, yof)
+    C1 = intersect_interval(xinv(X, interval(inf(Wx))), X)
+    C2 = intersect_interval(xinv(X, interval(sup(Wx))), X)
+    if isempty_interval(C1) || (!isempty_interval(C2) && inf(C2) < inf(C1))
+        C1, C2 = C2, C1
+    end
+    g1 = isempty_interval(C1) ? X : interval(inf(X), inf(C1))
+    g2 = isempty_interval(C1) || isempty_interval(C2) || sup(C1) >= inf(C2) ? emptyinterval(Float64) :
+         interval(sup(C1), inf(C2))                     # the crossings may overlap
+    g3 = isempty_interval(C1) ? emptyinterval(Float64) :
+         isempty_interval(C2) ? interval(sup(C1), sup(X)) : interval(sup(C2), sup(X))
+    in1 = _inside(g1, Wx, xcomp); in2 = _inside(g2, Wx, xcomp); in3 = _inside(g3, Wx, xcomp)
+    (in1 === nothing || in2 === nothing || in3 === nothing) && return nothing
+    in1 && push!(stack, (g1, depth, 2, a, 1))
+    in2 && push!(stack, (g2, depth, 2, a, 1))
+    in3 && push!(stack, (g3, depth, 2, a, 1))
+    cut = interval(0.0)
+    for C in (C1, C2)
+        isempty_interval(C) || (cut += interval(0.0, 1.0) * _ybound(C, a, b, y0, y1, yof))
+    end
+    return cut
+end
+
+# Whether `xcomp` sends the gap `g` into `Wx`, read at its midpoint: `false` for an empty
+# or degenerate gap, `nothing` when the midpoint is not interior or the reading is undecided.
+function _inside(g, Wx, xcomp)
+    (isempty_interval(g) || inf(g) >= sup(g)) && return false
+    m = mid(g)
+    inf(g) < m < sup(g) || return nothing
+    Q = xcomp(interval(m))
+    issubset_interval(Q, Wx) && return true
+    isdisjoint_interval(Q, Wx) && return false
+    return nothing
 end
 
 function _ybound(X, a, b, y0, y1, yof)

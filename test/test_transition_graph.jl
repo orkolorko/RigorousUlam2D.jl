@@ -284,6 +284,14 @@ end
             @test !isdisjoint_interval(Ab, Ac) && diam(Ab) <= 2.0^-29 && diam(Ac) <= tol
         end
         @test diam(fibred_area(1, lxcomp, lyof; yint = lyint, bisect = 30)(lleaf, Wx)) >= 2.0^-31
+        # the cell beside x = 0: the crossing with the window's end -1/2 is the point x = 0, where
+        # the inverse of the fibre is not defined; a point has no area and the cut must not fail
+        h0 = 2.0^-10
+        edge = IntervalBox(interval(-h0, 0.0), interval(-0.5, -0.5 + h0))
+        W0 = IntervalBox(interval(-0.5, -0.5 + 2.0^-8), interval(0.25, 0.25 + 2.0^-8))
+        Eb = fibred_area(1, lxcomp, lyof; yint = lyint, bisect = 20)(edge, W0)
+        Ec = fibred_area(1, lxcomp, lyof; yint = lyint, xinv = lxinv, bisect = 20)(edge, W0)
+        @test !isempty_interval(Ec) && !isdisjoint_interval(Eb, Ec) && diam(Ec) <= diam(Eb)
     end
 
     @testset "areas at the leaves: the translation exact, Hénon tightened and consistent" begin

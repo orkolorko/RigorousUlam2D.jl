@@ -512,7 +512,7 @@ function _read_cell!(acc::_Acc, tree::UlamTree, F, encl, area, depths, ℓ::Int,
                 end
                 Ap = intersect_interval(s.Aa[p], intersect_interval(interval(1.0) - others, interval(0.0, 1.0)))
                 isempty_interval(Ap) &&
-                    error("the fractions of a cell at depth $ℓ mapped into its targets do not sum to 1: the area function is wrong")
+                    error("the fractions of the cell $id at depth $ℓ mapped into its targets do not sum to 1 (ancestors $anc at depth $d, fractions $(s.Aa)): the area function is wrong")
                 P = interval(mass) * Ap
                 key = base + a
                 inf(P) > 0 && (ulo[key] = _down(get(ulo, key, 0.0), inf(P)))
@@ -1000,13 +1000,16 @@ function _cut!(stack, X, depth, Wx, a, b, y0, y1, xcomp, xinv, yof)
          isempty_interval(C2) ? interval(sup(C1), sup(X)) : interval(sup(C2), sup(X))
     in1 = _inside(g1, Wx, xcomp); in2 = _inside(g2, Wx, xcomp); in3 = _inside(g3, Wx, xcomp)
     (in1 === nothing || in2 === nothing || in3 === nothing) && return nothing
+    cut = interval(0.0)
+    for C in (C1, C2)
+        (isempty_interval(C) || inf(C) == sup(C)) && continue  # a point has no area
+        yb = _ybound(C, a, b, y0, y1, yof)      # may be empty or unbounded where `yof` is not defined
+        (isempty_interval(yb) || !isbounded(yb)) && return nothing
+        cut += interval(0.0, 1.0) * yb
+    end
     in1 && push!(stack, (g1, depth, 2, a, 1))
     in2 && push!(stack, (g2, depth, 2, a, 1))
     in3 && push!(stack, (g3, depth, 2, a, 1))
-    cut = interval(0.0)
-    for C in (C1, C2)
-        isempty_interval(C) || (cut += interval(0.0, 1.0) * _ybound(C, a, b, y0, y1, yof))
-    end
     return cut
 end
 
@@ -1017,6 +1020,7 @@ function _inside(g, Wx, xcomp)
     m = mid(g)
     inf(g) < m < sup(g) || return nothing
     Q = xcomp(interval(m))
+    isempty_interval(Q) && return nothing
     issubset_interval(Q, Wx) && return true
     isdisjoint_interval(Q, Wx) && return false
     return nothing

@@ -4,20 +4,22 @@
 # of RIM's one-dimensional kernels, the two assembled as the LinOp of `noisy_operator` (whose
 # rounding model has P_δ itself as the certified operator), and RigorousPseudospectra on it:
 #
-# - Ritz values of a short Arnoldi, in floating point, to place the radii;
+# - the eigenvalues that place the radii, in floating point and no part of the certificate: dense
+#   when n ≤ DENSEMAX, else Ritz values of a short Arnoldi;
 # - for R = f |λ₂| over the factors f of RLIST, largest first, the two-sided frame of def:Q with ks
 #   singular vectors per side (ks = 0, 8, 16, … up to KSMAX, then bisected back to the first that
 #   passes, as bench/bz/exp5_bz.jl of RigorousPseudospectra does), `certify_split` at order 8, and
 #   `count_exterior`: the exterior cover of |z| = R with count 1, i.e. the only eigenvalue of P_δ
 #   of modulus > R is 1, so |λ₂| ≤ R; the ladder stops at the first radius that fails;
-# - on the frame of the smallest certified R, `check_circle` on |z − 1| = ρ for every ρ of RHO
-#   (region :interior, which needs 1 − ρ > ḡ): `floor` is a certified lower bound on
-#   1/‖(P_δ − z)⁻¹‖₂ on the whole circle, so R₁ = 1/floor; and `certify_projector` there, with the
-#   number of eigenvalues inside the circle.
+# - on the frame of the smallest certified R: `certify_exterior`, the isolation disc of the
+#   eigenvalue outside R (compared with the dense eigenvalues when there are any); `check_circle`
+#   on |z − 1| = ρ for every ρ of RHO (region :interior, which needs 1 − ρ > ḡ), whose `floor` is a
+#   certified lower bound on 1/‖(P_δ − z)⁻¹‖₂ on the whole circle, so R₁ = 1/floor; and
+#   `certify_projector` there, with the number of eigenvalues inside the circle.
 #
 # Env: MAP (henon|lorenz), DEPTH, A (half-width of the noise box, a rational such as 51//512),
-# LEVEL (14), BISECT (30), TAG (_t12): the tree_deepen file read; RLIST, RHO, KSMAX (256), LRITZ
-# (300), NTHETA (64), MAXDEPTH (64).  Output: one line per step on stdout and
+# LEVEL (14), BISECT (30), TAG (_xinv_t12): the tree_deepen file read; RLIST, RHO, KSMAX (256),
+# LRITZ (300), NTHETA (64), MAXDEPTH (64), DENSEMAX (4096), NRADII (12).  Output: one line per step on stdout and
 #     ~/ResearchData/RigorousUlam2D_Data/data/certified_gap.<map>_d<depth>_a<p>-<q>.<host>.jls
 # with everything computed (an existing file is not rewritten).
 #
@@ -35,7 +37,9 @@ const MAP = get(ENV, "MAP", "henon")
 const DEPTH = parse(Int, get(ENV, "DEPTH", "6"))
 const A = let s = get(ENV, "A", "51//512"); p, q = parse.(Int, split(s, "//")); p // q end
 const LEVEL = get(ENV, "LEVEL", "14")
-const AREATAG = "area$(get(ENV, "BISECT", "30"))$(get(ENV, "TAG", "_t12"))"
+const AREATAG = "area$(get(ENV, "BISECT", "30"))$(get(ENV, "TAG", "_xinv_t12"))"
+const DENSEMAX = parse(Int, get(ENV, "DENSEMAX", "4096"))
+const NRADII = parse(Int, get(ENV, "NRADII", "12"))
 const RLIST = parse.(Float64, split(get(ENV, "RLIST", "2,1.5,1.25,1.1,1.05,1.02"), ","))
 const RHO = parse.(Float64, split(get(ENV, "RHO", "0.5,0.4,0.3,0.25,0.2,0.15,0.1"), ","))
 const KSMAX = parse(Int, get(ENV, "KSMAX", "256"))
@@ -70,8 +74,21 @@ println("$SCRIPT on $HOST, $(Dates.now()), julia $VERSION, threads $(Threads.nth
     info.nnzL, info.w, info.normL, info.λ, info.εL, info.γN, info.η, info.a_lo, info.epsA, info.etaA, time() - t0)
 flush(stdout)
 
-tr = @elapsed lam = RP._ritz_leading(Amul, n, Float64; L = LRITZ)
-@printf("Ritz moduli (L = %d, %.1f s): %s\n", LRITZ, tr, join((@sprintf("%.6f", abs(z)) for z in lam[1:min(8, end)]), " "))
+# the eigenvalues that place the radii: dense when the operator is small, else Ritz values
+const dense = n <= DENSEMAX
+tr = @elapsed lam = if dense
+    Ad = zeros(n, n)
+    for j in 1:n
+        e = zeros(n); e[j] = 1.0
+        Ad[:, j] = Amul(e)
+    end
+    λ = eigvals(Ad)
+    λ[sortperm(abs.(λ); rev = true)]
+else
+    RP._ritz_leading(Amul, n, Float64; L = LRITZ)
+end
+@printf("%s moduli (%s, %.1f s): %s\n", dense ? "dense" : "Ritz", dense ? "n = $n" : "L = $LRITZ", tr,
+    join((@sprintf("%.6f", abs(z)) for z in lam[1:min(8, end)]), " "))
 flush(stdout)
 λ2 = abs(lam[2])
 
@@ -129,10 +146,23 @@ for f in RLIST
 end
 
 circles = NamedTuple[]
+discs = NamedTuple[]
+ext = nothing
 if best !== nothing
     sc = best.sc
     @printf("certified: the only eigenvalue of modulus > %.6f is 1 (frame ks = %d, dim Q = %d, ḡ = %.6g)\n",
         best.R, best.ks, sc.k, sc.gbar)
+    # the isolation discs of the eigenvalues outside R (here the eigenvalue 1), and the dense check
+    td = @elapsed ext = RP.certify_exterior(sc, best.R; nθ = NTHETA, nradii = NRADII, maxdepth = MAXDEPTH, method = :svd)
+    outside = dense ? [z for z in lam if abs(z) > best.R] : ComplexF64[]
+    for dsc in ext.discs
+        inside = dense && isfinite(dsc.radius) ? count(z -> abs(z - dsc.center) < dsc.radius, outside) : -1
+        push!(discs, (; center = dsc.center, radius = dsc.radius, count = dsc.count, dense_inside = inside))
+    end
+    @printf("   exterior: count %d, %d isolation disc(s) %s%s (%.1f s)\n", ext.count, length(ext.discs),
+        join((@sprintf("|z − (%.6f%+.6fi)| ≤ %.3e holding %d", real(d.center), imag(d.center), d.radius, d.count) for d in discs), "; "),
+        dense ? ", dense eigenvalues inside as counted: $(all(d -> d.dense_inside == d.count, discs))" : "", td)
+    flush(stdout)
     for ρ in RHO
         t = @elapsed chk = RP.check_circle(sc, 1.0, ρ; region = :interior, nθ = NTHETA, maxdepth = MAXDEPTH, method = :svd)
         R1 = chk.ok && chk.floor > 0 ? 1 / chk.floor : Inf
@@ -153,7 +183,7 @@ end
 
 Serialization.serialize(out, (; map = MAP, depth = DEPTH, a = A, ξ = N.ξ, level = LEVEL, areatag = AREATAG, n,
     block = basename(file), operator = (; info.w, info.normL, info.λ, info.εL, info.γN, info.η, info.a_lo, info.epsA, info.etaA, info.nnzL),
-    ritz = lam[1:min(20, end)], radii, best = best === nothing ? nothing : (; best.R, best.ks, dimQ = best.sc.k, best.sc.gbar, best.sc.γ1, best.sc.γ2),
-    circles, host = HOST, script = SCRIPT, commits = COMMITS, julia = string(VERSION), threads = Threads.nthreads(),
+    dense, eigenvalues = lam[1:min(20, end)], radii, best = best === nothing ? nothing : (; best.R, best.ks, dimQ = best.sc.k, best.sc.gbar, best.sc.γ1, best.sc.γ2),
+    exterior = ext === nothing ? nothing : (; ext.ok, ext.count, discs), circles, host = HOST, script = SCRIPT, commits = COMMITS, julia = string(VERSION), threads = Threads.nthreads(),
     time = time() - t0))
 println("written $(basename(out)), $(round(time() - t0; digits = 1)) s")

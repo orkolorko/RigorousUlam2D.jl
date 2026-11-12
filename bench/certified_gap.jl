@@ -184,6 +184,6 @@ end
 Serialization.serialize(out, (; map = MAP, depth = DEPTH, a = A, ξ = N.ξ, level = LEVEL, areatag = AREATAG, n,
     block = basename(file), operator = (; info.w, info.normL, info.λ, info.εL, info.γN, info.η, info.a_lo, info.epsA, info.etaA, info.nnzL),
     dense, eigenvalues = lam[1:min(20, end)], radii, best = best === nothing ? nothing : (; best.R, best.ks, dimQ = best.sc.k, best.sc.gbar, best.sc.γ1, best.sc.γ2),
-    exterior = ext === nothing ? nothing : (; ext.ok, ext.count, discs), circles, host = HOST, script = SCRIPT, commits = COMMITS, julia = string(VERSION), threads = Threads.nthreads(),
+    exterior = ext === nothing ? nothing : (; ext.ok, ext.count, discs), circles, ksmax = KSMAX, rlist = RLIST, rho = RHO, ntheta = NTHETA, maxdepth = MAXDEPTH, lritz = LRITZ, host = HOST, script = SCRIPT, commits = COMMITS, julia = string(VERSION), threads = Threads.nthreads(),
     time = time() - t0))
 println("written $(basename(out)), $(round(time() - t0; digits = 1)) s")

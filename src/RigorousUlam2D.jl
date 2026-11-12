@@ -20,6 +20,7 @@ include("transfer_matvec.jl")
 include("haar_wavelet.jl")
 include("schur_norm_bounds.jl")
 include("transition_graph.jl")
+include("noisy_operator.jl")
 
 # Re-export from submodules
 # Partition utilities

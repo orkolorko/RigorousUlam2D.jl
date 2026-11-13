@@ -129,7 +129,18 @@ function frame_search(R)
     return f(hi), collect(values(cache))
 end
 
+circles = NamedTuple[]
+discs = NamedTuple[]
+ext = nothing
 radii = NamedTuple[]
+# The record, written after every certified radius and every circle (`partial = true`) and at the end.
+function save(partial::Bool)
+    Serialization.serialize(out, (; map = MAP, depth = DEPTH, a = A, ξ = N.ξ, level = LEVEL, areatag = AREATAG, n,
+        block = basename(file), operator = (; info.w, info.normL, info.λ, info.εL, info.γN, info.η, info.a_lo, info.epsA, info.etaA, info.nnzL),
+        dense, eigenvalues = lam[1:min(20, end)], radii, best = best === nothing ? nothing : (; best.R, best.ks, dimQ = best.sc.k, best.sc.gbar, best.sc.γ1, best.sc.γ2),
+        exterior = ext === nothing ? nothing : (; ext.ok, ext.count, discs), circles, ksmax = KSMAX, rlist = RLIST, rho = RHO, ntheta = NTHETA, maxdepth = MAXDEPTH, lritz = LRITZ,
+        host = HOST, script = SCRIPT, commits = COMMITS, julia = string(VERSION), threads = Threads.nthreads(), partial, time = time() - t0))
+end
 best = nothing
 for f in RLIST
     R = f * λ2
@@ -143,11 +154,9 @@ for f in RLIST
     end
     b === nothing && break
     global best = b
+    save(true)
 end
 
-circles = NamedTuple[]
-discs = NamedTuple[]
-ext = nothing
 if best !== nothing
     sc = best.sc
     @printf("certified: the only eigenvalue of modulus > %.6f is 1 (frame ks = %d, dim Q = %d, ḡ = %.6g)\n",
@@ -176,14 +185,11 @@ if best !== nothing
             minσ11 = chk.minσ11, minσ22 = chk.minσ22, nevals = chk.nevals,
             proj_ok = pc === nothing ? false : pc.ok, proj_count = pc === nothing ? -1 : pc.count,
             proj_bound = pc === nothing ? NaN : pc.bound, t = t + tp))
+        save(true)
     end
 else
     println("no radius of the ladder was certified")
 end
 
-Serialization.serialize(out, (; map = MAP, depth = DEPTH, a = A, ξ = N.ξ, level = LEVEL, areatag = AREATAG, n,
-    block = basename(file), operator = (; info.w, info.normL, info.λ, info.εL, info.γN, info.η, info.a_lo, info.epsA, info.etaA, info.nnzL),
-    dense, eigenvalues = lam[1:min(20, end)], radii, best = best === nothing ? nothing : (; best.R, best.ks, dimQ = best.sc.k, best.sc.gbar, best.sc.γ1, best.sc.γ2),
-    exterior = ext === nothing ? nothing : (; ext.ok, ext.count, discs), circles, ksmax = KSMAX, rlist = RLIST, rho = RHO, ntheta = NTHETA, maxdepth = MAXDEPTH, lritz = LRITZ, host = HOST, script = SCRIPT, commits = COMMITS, julia = string(VERSION), threads = Threads.nthreads(),
-    time = time() - t0))
+save(false)
 println("written $(basename(out)), $(round(time() - t0; digits = 1)) s")

@@ -27,7 +27,7 @@ for f in files
 end
 
 rows = NamedTuple[]
-for key in sort(union(keys(dens), keys(gaps)))
+for key in sort(collect(union(keys(dens), keys(gaps))))
     d = get(dens, key, nothing); g = get(gaps, key, nothing)
     r = something(d, g)
     side = r.map == "henon" ? 2.0 : 1.0; area = side^2

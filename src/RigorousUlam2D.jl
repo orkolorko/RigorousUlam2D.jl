@@ -21,6 +21,7 @@ include("haar_wavelet.jl")
 include("schur_norm_bounds.jl")
 include("transition_graph.jl")
 include("noisy_operator.jl")
+include("l1_error.jl")
 
 # Re-export from submodules
 # Partition utilities

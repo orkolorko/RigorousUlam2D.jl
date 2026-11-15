@@ -35,6 +35,15 @@ so `η = λ + ‖L̂‖ (ε_L + γ_N (1 + ε_L))`; the adjoint product `fl(L̂�
 one-dimensional kernel along `y` and then along `x`: with `|fl(K v) − K v| ≤ γ_K K|v|` for each
 kernel (`RigorousInvariantMeasures`, `UlamProjectedUniformKernel`), the two passes give
 `γ_N = (1 + γ_x)(1 + γ_y) − 1`.  Every operation on the constants is rounded upward.
+
+The same in ℓ¹, for the residual of a computed density (`l1_error.jl`): with `γ_w` the rounding
+of an inner product of `w` terms, `|fl(L̂ y) − L̂ y| ≤ γ_w |L̂| |y|` entrywise, so
+`‖e₁‖₁ ≤ γ_w ‖L̂‖₁ ‖y‖₁`, `‖v‖₁ ≤ (1 + γ_w) ‖L̂‖₁ ‖y‖₁`, `‖e₂‖₁ ≤ γ_N ‖N‖₁ ‖v‖₁ = γ_N ‖v‖₁`, and
+`‖N (L̂ − L) y‖₁ ≤ ‖E‖₁ ‖y‖₁`; whence
+
+    ‖fl(N L̂ y) − P_δ y‖₁ ≤ η₁ ‖y‖₁ + η₁ᴬ,   η₁ = ‖E‖₁ + ‖L̂‖₁ (γ_w + γ_N (1 + γ_w)),
+
+with `η₁ᴬ = √n η_A` the ℓ¹ size of the absolute (underflow) term `η_A` of the ℓ² model.
 """
 
 using RigorousInvariantMeasures: RigorousInvariantMeasures
@@ -133,7 +142,8 @@ The operator `P_δ = N L` of the file docstring as a `LinOp` of `RigorousPseudos
 `L̂ = fl(L_lo + U/2)`, the constant `η` of the file docstring turned into the relative `ε_A = η/a_lo`
 of the `LinOp` model with `a_lo ≤ ‖P_δ‖₂` from `norm_lower`, and the underflow term `η_A` of
 `w + nnz_per_row(N)` products per entry.  `info` holds `L̂`, the two products as functions of a
-vector (`Amul`, `Aadj`) and the pieces of `η`.
+vector (`Amul`, `Aadj`), the pieces of `η`, and the ℓ¹ constants `η1`, `eta1A` of the file
+docstring with `colL = ‖L̂‖₁` and `colE = ‖E‖₁`.
 """
 function noisy_operator(L_lo::SparseMatrixCSC{Float64,Int}, U::SparseMatrixCSC{Float64,Int},
         N::SquareNoise)
@@ -144,16 +154,21 @@ function noisy_operator(L_lo::SparseMatrixCSC{Float64,Int}, U::SparseMatrixCSC{F
     E = dropzeros!(max.(sub_up.(Lhat, L_lo), sub_up.(add_up.(L_lo, U), Lhat)))
     Lt = sparse(transpose(Lhat))
     w = max(1, RP._stencil_width(Lhat))
-    εL = mul_up(sqrt_up(Float64(w)), gamma_bound(w, Float64))
-    normL = sqrt_up(mul_up(RP._max_colsum_up(Lhat), RP._max_colsum_up(Lt)))
-    λ = sqrt_up(mul_up(RP._max_colsum_up(E), RP._max_colsum_up(sparse(transpose(E)))))
+    γw = gamma_bound(w, Float64)
+    εL = mul_up(sqrt_up(Float64(w)), γw)
+    colL, colE = RP._max_colsum_up(Lhat), RP._max_colsum_up(E)
+    normL = sqrt_up(mul_up(colL, RP._max_colsum_up(Lt)))
+    λ = sqrt_up(mul_up(colE, RP._max_colsum_up(sparse(transpose(E)))))
     γN = N.γ
     η = add_up(λ, mul_up(normL, add_up(εL, mul_up(γN, add_up(1.0, εL)))))
+    η1 = add_up(colE, mul_up(colL, add_up(γw, mul_up(γN, add_up(1.0, γw)))))
     Amul(x) = apply!(N, Lhat * Vector{Float64}(x))
     Aadj(x) = Lt * apply!(N, Vector{Float64}(x))
     etaA = RP._eta_stored(n, w + N.nnz_per_row, Float64)
+    eta1A = mul_up(sqrt_up(Float64(n)), etaA)
     a_lo = norm_lower(Amul, n, η, etaA)
     epsA = div_up(η, a_lo)
     op = LinOp(Amul, Aadj, n; epsA, etaA)
-    return op, (; Lhat, Amul, Aadj, w, εL, normL, λ, γN, η, etaA, a_lo, epsA, nnzL = nnz(Lhat))
+    return op, (; Lhat, Amul, Aadj, w, εL, normL, λ, γN, η, etaA, a_lo, epsA, nnzL = nnz(Lhat),
+        colL, colE, η1, eta1A)
 end

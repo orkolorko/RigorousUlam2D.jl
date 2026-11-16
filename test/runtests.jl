@@ -42,5 +42,6 @@ using Test
     include("test_transition_graph.jl")
     include("test_noisy_operator.jl")
     include("test_l1_error.jl")
+    include("test_norms_of_powers.jl")
 
 end

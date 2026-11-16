@@ -142,7 +142,9 @@ The operator `P_δ = N L` of the file docstring as a `LinOp` of `RigorousPseudos
 `L̂ = fl(L_lo + U/2)`, the constant `η` of the file docstring turned into the relative `ε_A = η/a_lo`
 of the `LinOp` model with `a_lo ≤ ‖P_δ‖₂` from `norm_lower`, and the underflow term `η_A` of
 `w + nnz_per_row(N)` products per entry.  `info` holds `L̂`, the two products as functions of a
-vector (`Amul`, `Aadj`), the pieces of `η`, and the ℓ¹ constants `η1`, `eta1A` of the file
+vector (`Amul`, `Aadj`), the product column by column of a matrix, `Bmul!(Y, X)` setting
+`Y = fl(N fl(L̂ X))` with the same arithmetic per column as `Amul` and so the same rounding model,
+the pieces of `η`, and the ℓ¹ constants `η1`, `eta1A` of the file
 docstring with `colL = ‖L̂‖₁` and `colE = ‖E‖₁`.
 """
 function noisy_operator(L_lo::SparseMatrixCSC{Float64,Int}, U::SparseMatrixCSC{Float64,Int},
@@ -164,11 +166,20 @@ function noisy_operator(L_lo::SparseMatrixCSC{Float64,Int}, U::SparseMatrixCSC{F
     η1 = add_up(colE, mul_up(colL, add_up(γw, mul_up(γN, add_up(1.0, γw)))))
     Amul(x) = apply!(N, Lhat * Vector{Float64}(x))
     Aadj(x) = Lt * apply!(N, Vector{Float64}(x))
+    function Bmul!(Y::Matrix{Float64}, X::Matrix{Float64})
+        mul!(Y, Lhat, X)
+        buf = Vector{Float64}(undef, n)
+        for c in axes(Y, 2)
+            col = view(Y, :, c)
+            copyto!(buf, col); apply!(N, buf); copyto!(col, buf)
+        end
+        return Y
+    end
     etaA = RP._eta_stored(n, w + N.nnz_per_row, Float64)
     eta1A = mul_up(sqrt_up(Float64(n)), etaA)
     a_lo = norm_lower(Amul, n, η, etaA)
     epsA = div_up(η, a_lo)
     op = LinOp(Amul, Aadj, n; epsA, etaA)
-    return op, (; Lhat, Amul, Aadj, w, εL, normL, λ, γN, η, etaA, a_lo, epsA, nnzL = nnz(Lhat),
+    return op, (; Lhat, Amul, Aadj, Bmul!, w, εL, normL, λ, γN, η, etaA, a_lo, epsA, nnzL = nnz(Lhat),
         colL, colE, η1, eta1A)
 end

@@ -63,7 +63,7 @@ enclosure `L_lo ≤ L ≤ L_lo + U`.  The variation of the computed density on t
 """
 
 export grid_variation, ulam_fixed_point, fixed_point_residual, fixed_point_distance,
-    sigma_from_gap, sigma_from_circle, defect_apriori
+    sigma_from_norms, sigma_from_gap, sigma_from_circle, defect_apriori
 
 "`1/(2√2) = √2/4` rounded upward: the constant of lem:sobolev2d."
 const C_M_UP = sqrt_up(2.0) / 4
@@ -144,32 +144,50 @@ function fixed_point_distance(Σgrid::Float64, ε1::Float64, ε2::Float64)
 end
 
 """
+    sigma_from_norms(C) -> (; grid, V, k, α)
+
+`Σ_{i<k} min(1, C_i) / (1 − α)`, `α = C_k`, `C_0 = 1`, over the `k` with `C_k < 1`, at the `k`
+giving the smallest value (`grid`), and `V = 1 + grid`, for bounds `C[i] ≥ ‖P_h^i|_{V_h}‖₁`,
+`i = 1, …, length(C)`: on `V_h`, `Σ_{j ≥ 0} P_h^j = Σ_{m ≥ 0} P_h^{mk} Σ_{i < k} P_h^i` and
+`‖P_h^{mk}|_{V_h}‖ ≤ αᵐ`, and `C_i ≤ 1` may be used for every `i` since `P_h` is a Markov
+operator; see the file docstring.  Upward.
+"""
+function sigma_from_norms(C::AbstractVector{<:Real})
+    best = (; grid = Inf, V = Inf, k = 0, α = NaN)
+    partial = 1.0                          # C_0
+    for k in eachindex(C)
+        α = Float64(C[k])
+        if α < 1
+            S = div_up(partial, -sub_up(α, 1.0))
+            S < best.grid && (best = (; grid = S, V = add_up(1.0, S), k, α))
+        end
+        partial = add_up(partial, min(1.0, α))
+    end
+    isfinite(best.grid) || throw(ArgumentError("no bound C_k is below 1"))
+    return best
+end
+
+"""
     sigma_from_gap(K, r; kmax = 100_000) -> (; grid, V, k, α)
 
-`Σ_{i<k} min(1, K rⁱ) / (1 − α)`, `α = K rᵏ`, over `k ≥ 2` with `α < 1`, at the `k` giving the
-smallest value (`grid`), and `V = 1 + grid`; from prop:gap_to_mixing, see the file docstring.
-`C_0 = C_1 = 1` are used as they stand.  Upward.
+`sigma_from_norms` on `C_1 = 1`, `C_i = K rⁱ` for `2 ≤ i ≤ kmax` (rounded upward), from
+prop:gap_to_mixing, see the file docstring; the sequence stops once `K rⁱ` is below the unit
+roundoff, beyond which `1/(1 − α)` is 1 to working precision while the sum keeps growing.
 """
 function sigma_from_gap(K::Float64, r::Float64; kmax::Int = 100_000)
     0 < r < 1 || throw(ArgumentError("the rate r = $r must be in (0, 1)"))
     K > 0 || throw(ArgumentError("K = $K must be positive"))
-    best = (; grid = Inf, V = Inf, k = 0, α = NaN)
-    partial = 2.0                          # C_0 + C_1
+    C = [1.0]
     rk = mul_up(r, r)                      # rᵏ for k = 2, upward
     for k in 2:kmax
         α = mul_up(K, rk)
-        if α < 1
-            S = div_up(partial, -sub_up(α, 1.0))
-            S < best.grid && (best = (; grid = S, V = add_up(1.0, S), k, α))
-            # beyond this point 1/(1 − α) is 1 to working precision while the sum keeps growing
-            α < eps(Float64) && break
-        end
-        partial = add_up(partial, min(1.0, α))
+        push!(C, α)
+        α < eps(Float64) && break
         rk = mul_up(rk, r)
         rk == 0 && break
     end
-    isfinite(best.grid) || throw(ArgumentError("K rᵏ never fell below 1 within kmax"))
-    return best
+    any(<(1), C) || throw(ArgumentError("K rᵏ never fell below 1 within kmax"))
+    return sigma_from_norms(C)
 end
 
 """

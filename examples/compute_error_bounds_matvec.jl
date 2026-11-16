@@ -141,15 +141,15 @@ function compute_error_bound_matvec(F, domain, noise, label;
                                 box_to_grid=b2g, grid_to_box=g2b)
         end
 
-        # For Higham bounds, we need ||P||_{ℓ^1} and max_nnz_per_row
-        # For composed P = N * P_det, ||P||_{ℓ^1} ≤ ||N||_{ℓ^1} * ||P_det||_{ℓ^1} = 1 * 1 = 1
-        # max_nnz_per_row of P ≈ n (fully dense rows due to large noise)
-        println("Computing norms of powers (mat-vec, multithreaded)...")
+        # The rounding model of norms_of_powers_matvec, ‖fl(Pv) − Pv‖₁ ≤ η1 ‖v‖₁, with
+        # ||P||_{ℓ^1} ≤ ||N||_{ℓ^1} * ||P_det||_{ℓ^1} = 1 and η1 = γ_n as for dense rows. This is
+        # the constant the example used before; it is not derived for noise_matvec's arithmetic
+        # and has no underflow term, so the norms below are estimates, not certificates.
+        println("Computing norms of powers (mat-vec)...")
         t_norms = @elapsed begin
             raw_norms = norms_of_powers_matvec(composed_matvec, n, max_power;
-                                                nrmM=1.0,
-                                                max_nnz_per_row=n,
-                                                rigorous=true,
+                                                η1=higham_gamma(n),
+                                                normP=1.0,
                                                 verbose=false)
             refined = refine_norms_of_powers(raw_norms, max_power)
         end

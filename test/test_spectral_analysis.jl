@@ -127,8 +127,9 @@ using LinearAlgebra, SparseArrays
         @test sum(result.π) ≈ 1.0
         @test all(result.π .>= 0)
 
-        # Check it's actually stationary: P'*π = π
-        @test P' * result.π ≈ result.π atol=1e-10
+        # Check it's actually stationary: P*π = π, π = (0.6, 0.4) for this column-stochastic P
+        @test P * result.π ≈ result.π atol=1e-10
+        @test result.π ≈ [0.6, 0.4] atol=1e-10
 
         # Doubly stochastic matrix has uniform stationary
         P_doubly = [0.5 0.5;

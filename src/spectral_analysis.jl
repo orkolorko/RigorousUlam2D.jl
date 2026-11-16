@@ -22,10 +22,12 @@ Reference: Galatolo-Monge-Nisoli-Poloni (2014), RigorousInvariantMeasure.jl
 
 using LinearAlgebra
 using SparseArrays
+using BallArithmetic: add_up, mul_up, sub_up, sqrt_up, gamma_bound
+using RigorousPseudospectra: RigorousPseudospectra
 
 export operator_norm_on_V, find_contraction_power, operator_norm_on_V_power
 export rigorous_norm_on_V, higham_gamma
-export norms_of_powers_sparse, norms_of_powers_matvec, refine_norms_of_powers, norms_of_powers_from_coarser_grid
+export norms_of_powers_columns, norms_of_powers_sparse, norms_of_powers_matvec, refine_norms_of_powers, norms_of_powers_from_coarser_grid
 export compute_stationary_density, rigorous_error_bound
 export noise_variation, ulam_approximation_error
 
@@ -371,214 +373,122 @@ function max_nonzeros_per_row(A::Matrix)
 end
 
 """
-    norms_of_powers_sparse(P::AbstractMatrix, m::Int;
-                           rigorous::Bool=true,
-                           verbose::Bool=false)
+    norms_of_powers_columns(blockmul!, n, m; η1, eta1A = 0.0, normP = 1.0, u,
+                            block = 64, verbose = false) -> C
 
-Compute rigorous upper bounds on ||P^k|_V||_1 for k = 1, ..., m
-using the sparse Algorithm 2 from Galatolo-Monge-Nisoli-Poloni (2014).
+Upper bounds `C[j] ≥ ‖P^j|_{V_h}‖₁`, `j = 1, …, m`, where `V_h = {v ∈ ℝⁿ : Σ vᵢ = 0}`, for a linear
+operator `P` known through a computed product that obeys, column by column,
 
-Instead of forming the dense P^k, this iterates v ← P*v for each column
-of the matrix U = [e*; -I] (i.e., for v = e_1 - e_j, j = 2,...,n).
-By Lemma 8.5, ||P^k|_V|| ≤ ||P^k U||_{ℓ^1} = max_j ||P^k(e_1 - e_j)||_1.
+    ‖fl(P y) − P y‖₁ ≤ η1 ‖y‖₁ + eta1A,      ‖P‖₁ ≤ normP.
 
-Each step is a sparse matrix-vector product: O(nnz) per step.
-Total cost: O(n · m · nnz) with O(n) memory, vs O(n² · m) for the dense approach.
+**The bound.** For `v ∈ V_h` and any fixed `u ∈ ℝⁿ`, `v = Σᵢ vᵢ (eᵢ − u)` because `Σᵢ vᵢ = 0`, so
+`P^j v = Σᵢ vᵢ (P^j eᵢ − u)` and
 
-Floating-point errors are tracked per iteration using Higham's γ constants
-(Lemma 8.11 from the paper). For the Ulam projection (integral-preserving),
-the error recurrence is:
+    ‖P^j|_{V_h}‖₁ ≤ maxᵢ ‖P^j eᵢ − u‖₁.
 
-    ε₀ = 0
-    ε_{k+1} = (γ_z · ||M|| + δ) · ||v̄_k|| + ||Q_h|| · ε_k
+No property of `P` beyond linearity is used; `u` is a free choice, and near the fixed point of a
+mixing `P` it makes the bound decay with `j`.
 
-where γ_z = gamma(max_nonzeros_per_row(P)), δ = 0 for floating-point matrices,
-and ||Q_h|| = ||M|| for the midpoint matrix.
+**The rounding.** Each column is iterated in floating point from `x₀ = eᵢ`, exact; with
+`ε_j ≥ ‖x_j − P^j eᵢ‖₁`, `ε₀ = 0`, and `x_{j+1} − P^{j+1} eᵢ = (fl(P x_j) − P x_j) + P (x_j − P^j eᵢ)`,
 
-# Arguments
-- `P`: Column-stochastic matrix (sparse or dense)
-- `m`: Maximum power to compute norms for
-- `rigorous`: If true, track floating-point error bounds
-- `verbose`: If true, print progress
+    ε_{j+1} = η1 ‖x_j‖₁ + eta1A + normP ε_j,
 
-# Returns
-- Vector of length m: norms[k] is a (rigorous) upper bound on ||P^k|_V||_1
+so `C[j] = maxᵢ (‖x_j − u‖₁ + ε_j)`, every operation rounded upward.
 
-# Reference
-- Galatolo-Monge-Nisoli-Poloni (2014), Section 8.3, Algorithm 2
+`blockmul!(Y, X)` must set every column of `Y` to the computed product of `P` with the same column
+of `X` (`n × b` matrices), under the model above; it is called on disjoint blocks of `block`
+columns from several threads at once, so it must be thread safe.  Cost: `n m` column products.
 """
-function norms_of_powers_sparse(P::AbstractMatrix, m::Int;
-                                rigorous::Bool=true,
-                                verbose::Bool=false)
-    n = size(P, 1)
-    T = Float64
-    u = eps(T) / 2
-
-    # Use the midpoint matrix (for interval matrices this would differ;
-    # here P is already Float64 so M = P, δ = 0)
-    M = P
-    δ = 0.0
-
-    # Precompute constants for error tracking
-    γz = zero(T)
-    nrmM = zero(T)
-    normQ = zero(T)
-    if rigorous
-        z = issparse(P) ? max_nonzeros_per_row(P) : n
-        γz = z * u / (1 - z * u)  # Higham's γ_z
-        # For column-stochastic (Markov) operators, ||P||_{ℓ^1} = 1
-        # and ||P|_V|| ≤ 1 (uniform bound on U_0)
-        nrmM = 1.0
-        normQ = 1.0
-    end
-
-    # Multithreaded: each thread accumulates its own C_k vector
+function norms_of_powers_columns(blockmul!, n::Int, m::Int; η1::Real, eta1A::Real = 0.0,
+        normP::Real = 1.0, u::AbstractVector{Float64}, block::Int = 64, verbose::Bool = false)
+    length(u) == n || throw(DimensionMismatch("u has length $(length(u)), expected $n"))
+    m >= 1 && block >= 1 || throw(ArgumentError("m and block must be positive"))
+    η1, eta1A, normP = Float64(η1), Float64(eta1A), Float64(normP)
+    starts = collect(1:block:n)
     nt = Threads.maxthreadid()
-    C_local = [zeros(T, m) for _ in 1:nt]
-
-    # Main loop: iterate over columns of U, i.e., vectors e_1 - e_j
-    # Each j is independent → embarrassingly parallel
-    Threads.@threads :static for j in 2:n
-        tid = Threads.threadid()
-        C_t = C_local[tid]
-
-        # Initialize v = (1/2)(e_1 - e_j), normalized so ||v||_1 = 1
-        # The extreme points of the unit ball in V are (1/2)(e_j - e_k)
-        v = zeros(T, n)
-        v[1] = 0.5
-        v[j] = -0.5
-
-        # Preallocate workspace to avoid GC pressure in the inner loop
-        w = zeros(T, n)
-
-        nrmv = 1.0  # ||(1/2)(e_1 - e_j)||_1 = 1
-        ε = 0.0
-
-        for k in 1:m
-            # In-place sparse matrix-vector product: w = M * v
-            mul!(w, M, v)
-            v, w = w, v  # swap (no allocation)
-
-            if rigorous
-                # Error recurrence (Lemma 8.11, integral-preserving case):
-                # ε_{k+1} = (γ_z · ||M|| + δ) · ||v̄_k|| + ||Q_h|| · ε_k
-                ε = (γz * nrmM + δ) * nrmv + normQ * ε
+    C_local = [zeros(m) for _ in 1:nt]
+    done = Threads.Atomic{Int}(0)
+    t0 = time()
+    Threads.@threads :dynamic for s in starts
+        cols = s:min(s + block - 1, n)
+        b = length(cols)
+        X = zeros(n, b); Y = zeros(n, b)
+        for (c, i) in enumerate(cols)
+            X[i, c] = 1.0
+        end
+        nrm = ones(b)                       # ‖x_j‖₁, upward
+        ε = zeros(b)
+        C_t = C_local[Threads.threadid()]
+        for j in 1:m
+            blockmul!(Y, X)
+            X, Y = Y, X
+            @inbounds for c in 1:b
+                ε[c] = add_up(add_up(mul_up(η1, nrm[c]), eta1A), mul_up(normP, ε[c]))
+                s1 = 0.0; s2 = 0.0
+                for r in 1:n
+                    x = X[r, c]
+                    s1 = add_up(s1, abs(x))
+                    s2 = add_up(s2, max(sub_up(x, u[r]), sub_up(u[r], x)))
+                end
+                nrm[c] = s1
+                C_t[j] = max(C_t[j], add_up(s2, ε[c]))
             end
-
-            # Compute ||v||_1
-            nrmv = sum(abs, v)
-
-            # Update thread-local C_k
-            C_t[k] = max(C_t[k], nrmv + ε)
         end
+        k = Threads.atomic_add!(done, b) + b
+        verbose && k % (16 * block) < b &&
+            println("  columns $k / $n, $(round(time() - t0, digits = 1)) s")
     end
-
-    # Reduce: take max over all threads
-    C = zeros(T, m)
-    for t in 1:nt
-        for k in 1:m
-            C[k] = max(C[k], C_local[t][k])
-        end
+    C = zeros(m)
+    for C_t in C_local, j in 1:m
+        C[j] = max(C[j], C_t[j])
     end
-
     if verbose
-        for k in 1:m
-            rig_str = rigorous ? " (rigorous)" : ""
-            println("  k = $k: ||P^k|_V||$rig_str ≤ $(round(C[k], digits=6))")
+        for j in 1:m
+            println("  j = $j: ‖P^j|_V‖₁ ≤ $(C[j])")
         end
     end
-
     return C
 end
 
 """
-    norms_of_powers_matvec(matvec, n::Int, m::Int;
-                           nrmM::Float64=1.0,
-                           max_nnz_per_row::Int=n,
-                           rigorous::Bool=true,
-                           verbose::Bool=false)
+    norms_of_powers_matvec(matvec, n, m; η1, eta1A = 0.0, normP = 1.0, u = nothing,
+                           verbose = false) -> C
 
-Compute rigorous upper bounds on ||P^k|_V||_1 using a mat-vec oracle.
-
-This is the same as `norms_of_powers_sparse` but instead of requiring the explicit
-matrix P, it accepts a function `matvec(v) -> P*v`. This enables:
-- Matrix-free computation (e.g., `matvec(v) = N * (P_det * v)`)
-- Efficient noise convolution via FFT or tensor product structure
-- Very large problems where the composed matrix P = N * P_det is too dense to store
-
-# Arguments
-- `matvec`: Function `v::Vector{Float64} -> P*v::Vector{Float64}`
-- `n`: Dimension of the vectors
-- `m`: Maximum power to compute norms for
-- `nrmM`: Operator norm ||P||_{ℓ^1} (max column 1-norm), default 1.0 for stochastic
-- `max_nnz_per_row`: Max nonzeros per row (for Higham γ_z), default n (dense)
-- `rigorous`: If true, track floating-point error bounds
-- `verbose`: If true, print progress
-
-# Returns
-- Vector of length m: norms[k] is a (rigorous) upper bound on ||P^k|_V||_1
+[`norms_of_powers_columns`](@ref) for an operator given by `matvec(v) = fl(P v)` on vectors, under
+the same rounding model, one column at a time.  `u` defaults to the power iteration
+`ulam_fixed_point(matvec, n)`, which is only a choice of the vector the columns are compared with.
 """
-function norms_of_powers_matvec(matvec, n::Int, m::Int;
-                                nrmM::Float64=1.0,
-                                max_nnz_per_row::Int=n,
-                                rigorous::Bool=true,
-                                verbose::Bool=false)
-    T = Float64
-    u = eps(T) / 2
+function norms_of_powers_matvec(matvec, n::Int, m::Int; η1::Real, eta1A::Real = 0.0,
+        normP::Real = 1.0, u = nothing, verbose::Bool = false)
+    uu = u === nothing ? ulam_fixed_point(matvec, n).v : Vector{Float64}(u)
+    blockmul!(Y, X) = foreach(c -> (Y[:, c] = matvec(X[:, c])), axes(X, 2))
+    return norms_of_powers_columns(blockmul!, n, m; η1, eta1A, normP, u = uu, block = 1, verbose)
+end
 
-    # Higham error constants
-    γz = zero(T)
-    normQ = zero(T)
-    δ = 0.0
-    if rigorous
-        γz = max_nnz_per_row * u / (1 - max_nnz_per_row * u)
-        normQ = nrmM
-    end
+"""
+    norms_of_powers_sparse(P, m; rigorous = true, u = nothing, block = 64, verbose = false) -> C
 
-    # Multithreaded: each thread accumulates its own C_k vector
-    nt = Threads.maxthreadid()
-    C_local = [zeros(T, m) for _ in 1:nt]
-
-    Threads.@threads :static for j in 2:n
-        tid = Threads.threadid()
-        C_t = C_local[tid]
-
-        # Normalized test vector: (1/2)(e_1 - e_j), ||v||_1 = 1
-        v = zeros(T, n)
-        v[1] = 0.5
-        v[j] = -0.5
-
-        nrmv = 1.0
-        ε = 0.0
-
-        for k in 1:m
-            v = matvec(v)
-
-            if rigorous
-                ε = (γz * nrmM + δ) * nrmv + normQ * ε
-            end
-
-            nrmv = sum(abs, v)
-            C_t[k] = max(C_t[k], nrmv + ε)
-        end
-    end
-
-    # Reduce
-    C = zeros(T, m)
-    for t in 1:nt
-        for k in 1:m
-            C[k] = max(C[k], C_local[t][k])
-        end
-    end
-
-    if verbose
-        for k in 1:m
-            rig_str = rigorous ? " (rigorous)" : ""
-            println("  k = $k: ||P^k|_V||$rig_str ≤ $(round(C[k], digits=6))")
-        end
-    end
-
-    return C
+[`norms_of_powers_columns`](@ref) for an explicit matrix `P`, taken as the operator itself.  With
+`w` the largest number of nonzeros in a row of `P`, an entry of `P y` is an inner product of at
+most `w` terms, so `|fl(P y) − P y| ≤ γ_w |P| |y| + (underflow)` entrywise [Higham, Accuracy and
+Stability of Numerical Algorithms, 2nd ed., (3.11)]; whence `η1 = γ_w ‖|P|‖₁`, `eta1A = √n η_A`
+with the underflow term `η_A` of `RigorousPseudospectra` for `w` products, and
+`normP = ‖|P|‖₁`, all upward.  `rigorous = false` sets `η1 = eta1A = 0`.  `u` defaults to the power
+iteration `ulam_fixed_point` of `P`.
+"""
+function norms_of_powers_sparse(P::AbstractMatrix, m::Int; rigorous::Bool = true, u = nothing,
+        block::Int = 64, verbose::Bool = false)
+    n = size(P, 1)
+    size(P, 2) == n || throw(DimensionMismatch("P must be square"))
+    Ps = P isa SparseMatrixCSC ? SparseMatrixCSC{Float64,Int}(P) : sparse(Matrix{Float64}(P))
+    w = max(1, max_nonzeros_per_row(Ps))
+    normP = RigorousPseudospectra._max_colsum_up(Ps)
+    η1 = rigorous ? mul_up(gamma_bound(w, Float64), normP) : 0.0
+    eta1A = rigorous ? mul_up(sqrt_up(Float64(n)), RigorousPseudospectra._eta_stored(n, w, Float64)) : 0.0
+    uu = u === nothing ? ulam_fixed_point(v -> Ps * v, n).v : Vector{Float64}(u)
+    return norms_of_powers_columns((Y, X) -> mul!(Y, Ps, X), n, m; η1, eta1A, normP, u = uu,
+        block, verbose)
 end
 
 """
@@ -587,16 +497,14 @@ end
 Refine norm bounds using sub-multiplicativity: ||P^{k+h}|| ≤ ||P^k|| · ||P^h||.
 
 Given computed bounds norms[k] ≥ ||P^k|_V||, this produces tighter bounds
-by checking all factorizations k = i + (k-i) and taking the minimum.
-
-# Reference
-- Galatolo-Monge-Nisoli-Poloni (2014), after Algorithm 2
+by checking all factorizations k = i + (k-i) and taking the minimum; the
+products are rounded upward.
 """
 function refine_norms_of_powers(norms::Vector, m::Int=length(norms))
     better_norms = fill(NaN, m)
     better_norms[1] = norms[1]
     for k in 2:m
-        better_norms[k] = minimum(better_norms[i] * better_norms[k-i] for i in 1:k-1)
+        better_norms[k] = minimum(mul_up(better_norms[i], better_norms[k-i]) for i in 1:k-1)
         if k <= length(norms)
             better_norms[k] = min(better_norms[k], norms[k])
         end
@@ -777,9 +685,9 @@ end
                                tol::Float64=1e-12,
                                max_iter::Int=10000)
 
-Compute the stationary density (left eigenvector) of a column-stochastic matrix.
+Compute the stationary density of a column-stochastic matrix.
 
-The stationary density π satisfies P'π = π and Σ π_i = 1.
+The stationary density π satisfies Pπ = π and Σ π_i = 1.
 
 # Arguments
 - `P`: Column-stochastic matrix
@@ -793,7 +701,7 @@ Named tuple with:
 - `iterations`: Number of iterations used
 
 # Note
-Uses power iteration on P'. For matrices with spectral gap, convergence is geometric.
+Uses power iteration on P. For matrices with spectral gap, convergence is geometric.
 """
 function compute_stationary_density(P::AbstractMatrix;
                                    tol::Float64=1e-12,
@@ -804,8 +712,7 @@ function compute_stationary_density(P::AbstractMatrix;
     π = fill(1.0/n, n)
 
     for iter in 1:max_iter
-        # Apply P' (left multiplication by P on row vectors)
-        π_new = P' * π
+        π_new = P * π
 
         # Normalize to ensure sum = 1
         π_new ./= sum(π_new)
@@ -1092,7 +999,7 @@ function spectral_gap(P::AbstractMatrix; method::Symbol=:power_iteration)
 
         # Start with random vector orthogonal to 1
         v = randn(n)
-        v = v .- mean(v)  # Make orthogonal to constant
+        v = v .- sum(v) / n  # Make orthogonal to constant
         v ./= norm(v)
 
         λ_prev = 0.0

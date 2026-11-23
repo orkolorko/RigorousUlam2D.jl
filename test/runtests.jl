@@ -40,6 +40,7 @@ using Test
     include("test_ulam_discretization.jl")
     include("test_haar_wavelet.jl")
     include("test_transition_graph.jl")
+    include("test_maps.jl")
     include("test_noisy_operator.jl")
     include("test_l1_error.jl")
     include("test_norms_of_powers.jl")

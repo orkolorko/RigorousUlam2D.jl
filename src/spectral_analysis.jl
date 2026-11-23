@@ -406,8 +406,8 @@ function norms_of_powers_columns(blockmul!, n::Int, m::Int; η1::Real, eta1A::Re
     m >= 1 && block >= 1 || throw(ArgumentError("m and block must be positive"))
     η1, eta1A, normP = Float64(η1), Float64(eta1A), Float64(normP)
     starts = collect(1:block:n)
-    nt = Threads.maxthreadid()
-    C_local = [zeros(m) for _ in 1:nt]
+    C = zeros(m)
+    Clock = ReentrantLock()
     done = Threads.Atomic{Int}(0)
     t0 = time()
     Threads.@threads :dynamic for s in starts
@@ -419,7 +419,7 @@ function norms_of_powers_columns(blockmul!, n::Int, m::Int; η1::Real, eta1A::Re
         end
         nrm = ones(b)                       # ‖x_j‖₁, upward
         ε = zeros(b)
-        C_t = C_local[Threads.threadid()]
+        C_t = zeros(m)                      # this block's maxima, merged under the lock
         for j in 1:m
             blockmul!(Y, X)
             X, Y = Y, X
@@ -435,13 +435,14 @@ function norms_of_powers_columns(blockmul!, n::Int, m::Int; η1::Real, eta1A::Re
                 C_t[j] = max(C_t[j], add_up(s2, ε[c]))
             end
         end
+        lock(Clock) do
+            for j in 1:m
+                C[j] = max(C[j], C_t[j])
+            end
+        end
         k = Threads.atomic_add!(done, b) + b
         verbose && k % (16 * block) < b &&
             println("  columns $k / $n, $(round(time() - t0, digits = 1)) s")
-    end
-    C = zeros(m)
-    for C_t in C_local, j in 1:m
-        C[j] = max(C[j], C_t[j])
     end
     if verbose
         for j in 1:m

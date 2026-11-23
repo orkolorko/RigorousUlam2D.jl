@@ -31,30 +31,30 @@ using Test
         @test P.info.Amul(x) == info.Amul(x) && P.normP >= 1
     end
 
-    @testset "the drivers, end to end on a small Lorenz tree" begin
+    @testset "the drivers, end to end on a Lorenz tree of depth 7" begin
         root = mktempdir(); data = joinpath(root, "data")
         proj = pkgdir(RigorousUlam2D)
         drv(name, env) = run(addenv(`$(Base.julia_cmd()) --startup-file=no --project=$proj $(joinpath(proj, "bench", name))`,
                                     env..., "DATAROOT" => root, "DATADIR" => data))
         lor = ("MAP" => "lorenz",)
-        drv("tree_deepen.jl", (lor..., "D0" => "2", "D1" => "6", "STORE" => "6", "LEVEL" => "7", "BISECT" => "12"))
+        drv("tree_deepen.jl", (lor..., "D0" => "2", "D1" => "7", "STORE" => "7", "LEVEL" => "8", "BISECT" => "12"))
         # the drivers read the blocks under the default name, level 14, bisect 30, depth 12 targets
-        for d in 4:6
-            cp(block_file(data, "lorenz", d; level = 7, bisect = 12, d1 = 6), block_file(data, "lorenz", d))
+        for d in 6:7
+            cp(block_file(data, "lorenz", d; level = 8, bisect = 12, d1 = 7), block_file(data, "lorenz", d))
         end
-        for d in (5, 6)
+        for d in (6, 7)
             drv("stationary_density.jl", (lor..., "DEPTH" => "$d", "A" => "3//8"))
         end
-        drv("l1_mixing.jl", (lor..., "DEPTH" => "5", "A" => "3//8", "M" => "40"))
-        drv("l1_transfer.jl", (lor..., "DEPTH" => "5", "A" => "3//8", "FINE" => "6"))
+        drv("l1_mixing.jl", (lor..., "DEPTH" => "6", "A" => "3//8", "M" => "40"))
+        drv("l1_transfer.jl", (lor..., "DEPTH" => "6", "A" => "3//8", "FINE" => "7"))
         _, dens = read_record(latest_record(data, "stationary_density"))
         @test length(dens) == 2 && all(r -> parse(Float64, r["eps2"]) < 1e-12, dens)
-        _, pw = read_record(latest_record(data, "l1_mixing.lorenz_d5_a3-8"))
+        _, pw = read_record(latest_record(data, "l1_mixing.lorenz_d6_a3-8"))
         @test length(pw) == 40 && all(r -> parse(Float64, r["C_refined"]) <= parse(Float64, r["C"]), pw)
         _, tr = read_record(latest_record(data, "l1_transfer"))
-        @test length(tr) == 1 && tr[1]["fine_depth"] == "6" && isfinite(parse(Float64, tr[1]["err"]))
+        @test length(tr) == 1 && tr[1]["fine_depth"] == "7" && isfinite(parse(Float64, tr[1]["err"]))
         # a second run of a recorded configuration does nothing
-        drv("l1_transfer.jl", (lor..., "DEPTH" => "5", "A" => "3//8", "FINE" => "6"))
+        drv("l1_transfer.jl", (lor..., "DEPTH" => "6", "A" => "3//8", "FINE" => "7"))
         @test length(last(read_record(latest_record(data, "l1_transfer")))) == 1
     end
 end

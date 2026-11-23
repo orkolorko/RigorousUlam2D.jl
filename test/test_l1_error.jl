@@ -1,5 +1,6 @@
 using Test, RigorousUlam2D, IntervalArithmetic, IntervalBoxes, LinearAlgebra, SparseArrays, Random
 using RigorousInvariantMeasures: RigorousInvariantMeasures
+using BallArithmetic: mul_up, sqrt_up, div_up
 const RIMl = RigorousInvariantMeasures
 
 @testset "the L¹ error scheme" begin
@@ -106,5 +107,33 @@ const RIMl = RigorousInvariantMeasures
         c = sigma_from_circle(4.0, 2 / 0.5, R1)
         @test c.grid >= Σexact
         @test norm(fp.v - fh, 1) <= fixed_point_distance(g.grid, res.ε1, res.ε2)
+    end
+
+    @testset "coarse_fine_norms bounds the norms of a finer operator (Lorenz, depths 6 and 7)" begin
+        sys = lorenz_system(bisect = 12)
+        mats = ulam_matrices(UlamTree(sys.F, sys.domain, 2, 7; enclosure_method = zeroth_order_enclosure,
+                                      area = sys.area), 6:7; level = 9)
+        a = 3 // 8                                   # ξ = 3/4: ξ k exact at both depths
+        op(d) = (m = mats[d - 5]; perm = grid_order(sys.domain, d);
+                 noisy_operator(m.L_lo[perm, perm], m.U[perm, perm], SquareNoise(sys.domain, d, Float64(a); slots = 2))[2])
+        ic, if_ = op(6), op(7)
+        nc = 4^6; M = 30
+        u = ulam_fixed_point(ic.Amul, nc).v
+        C = norms_of_powers_columns(ic.Bmul!, nc, M; η1 = ic.η1, eta1A = ic.eta1A, u, block = 64)
+        δ = mul_up(sqrt_up(2.0), 1 / 64); varρ = div_up(16.0, 3.0)   # 2/a
+        F = coarse_fine_norms(refine_norms_of_powers(C, M), δ, varρ)
+        @test length(F) == M + 1 && all(<=(1), F) && any(<(1), F)
+        # a lower bound on ‖P_f^k|_V‖₁: half the largest distance between the images of 48
+        # cells, as (e_i − e_j)/2 lies in the unit ball of V; the fine operator is the computed one
+        nf = 4^7
+        Random.seed!(5)
+        cols = sort(rand(1:nf, 48))
+        X = zeros(nf, length(cols)); for (c, i) in enumerate(cols); X[i, c] = 1.0; end
+        Y = similar(X)
+        for k in 1:M + 1
+            if_.Bmul!(Y, X); X, Y = Y, X
+            low = maximum(norm(X[:, p] - X[:, q], 1) / 2 for p in axes(X, 2) for q in p+1:size(X, 2))
+            @test low <= F[k] + 1e-9
+        end
     end
 end

@@ -33,10 +33,10 @@ const XINV = get(ENV, "XINV", "1") == "1"
 const DEPTHS = let s = get(ENV, "DEPTHS", "$D0:$D1"); a, b = parse.(Int, split(s, ":")); a:b end
 
 gitrev(dir) = try chomp(read(`git -C $dir rev-parse --short HEAD`, String)) catch; "?" end
-gitdirty(dir) = try !isempty(read(`git -C $dir status --porcelain --untracked-files=no`, String)) catch; true end
+gitdirty(dir) = try !isempty(read(`git -C $dir status --porcelain --untracked-files=no -- src bench Project.toml Manifest.toml`, String)) catch; true end
 const PKG = dirname(dirname(pathof(RigorousUlam2D)))
 const COMMITS = (; RigorousUlam2D = gitrev(PKG), dirty = gitdirty(PKG))
-COMMITS.dirty && error("$PKG has uncommitted changes to tracked files; commit before running")
+COMMITS.dirty && error("$PKG has uncommitted changes in src, bench or the project files; commit before running")
 
 sys = MAP == "henon" ? henon_system(; bisect = BISECT, xinv = XINV) :
       MAP == "lorenz" ? lorenz_system(; bisect = BISECT, xinv = XINV) : error("MAP must be henon or lorenz")

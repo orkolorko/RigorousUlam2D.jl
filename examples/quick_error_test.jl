@@ -92,10 +92,8 @@ for n_fine_target in [4096, 16384, 65536]
     n_fine_actual = 4^depth
     δ_fine = 1.0 / 2^depth  # side length of each box
 
-    fine_norms = norms_of_powers_from_coarser_grid(
-        refined, 20, Float64(δ), n_fine_actual, noise
-    )
-    fine_refined = refine_norms_of_powers(fine_norms, 20)
+    fine_norms = coarse_fine_norms(refined[1:20], Float64(δ), Float64(var_ρ))
+    fine_refined = fine_norms                # already refined by submultiplicativity
 
     @printf("\n  Fine grid: n_F=%d, δ_F=%.6f\n", n_fine_actual, δ_fine)
     for k in 1:min(10, 20)

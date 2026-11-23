@@ -63,7 +63,7 @@ enclosure `L_lo ≤ L ≤ L_lo + U`.  The variation of the computed density on t
 """
 
 export grid_variation, ulam_fixed_point, fixed_point_residual, fixed_point_distance,
-    sigma_from_norms, sigma_from_gap, sigma_from_circle, defect_apriori
+    sigma_from_norms, sigma_from_gap, sigma_from_circle, defect_apriori, coarse_fine_norms
 
 "`1/(2√2) = √2/4` rounded upward: the constant of lem:sobolev2d."
 const C_M_UP = sqrt_up(2.0) / 4
@@ -211,3 +211,19 @@ of a cell; see the file docstring.  Upward.
 """
 defect_apriori(δ::Float64, varρ::Float64, varf::Float64) =
     add_up(mul_up(mul_up(1.5, δ), varρ), mul_up(mul_up(0.5, δ), varf))
+
+"""
+    coarse_fine_norms(C, δ, varρ; first = 1.0) -> F
+
+Bounds `F_k ≥ ‖Λ^k|_V‖_{L¹}`, `k = 1, …, length(C) + 1`, for `Λ = σ N_ξ σ L_T σ` with `σ` the
+Ulam projection of any dyadic refinement of the grid of cell diameter `δ`, or the identity
+(`Λ = L_ξ`), from bounds `C_k ≥ ‖P_h^k|_{V_h}‖₁` for the coarse `P_h = π_h N_ξ π_h L_T π_h`
+(`norms_of_powers_columns`; they bound `‖P_h^k|_V‖₁` as well, `P_h` ending with `π_h`).
+It is the recursion of Galatolo, Monge, Nisoli (2020), Lemma 29 with (36), as implemented by
+`norms_of_powers_recursive_noise` of RigorousInvariantMeasures, whose only input from the
+geometry is a bound on `‖(π_h − 1) N_ξ‖₁` and `‖N_ξ (π_h − 1)‖₁`; Theorem D gives
+`(δ/2) var(ρ_ξ)` and `δ var(ρ_ξ)`, and the larger, `δ var(ρ_ξ)` rounded upward, is passed.
+`first ≥ ‖Λ‖` on `V`; 1 for a Markov operator.
+"""
+coarse_fine_norms(C::AbstractVector{<:Real}, δ::Float64, varρ::Float64; first::Real = 1.0) =
+    RIM.norms_of_powers_recursive_noise(mul_up(δ, varρ), Vector{Float64}(C); first)

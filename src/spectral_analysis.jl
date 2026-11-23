@@ -27,7 +27,7 @@ using RigorousPseudospectra: RigorousPseudospectra
 
 export operator_norm_on_V, find_contraction_power, operator_norm_on_V_power
 export rigorous_norm_on_V, higham_gamma
-export norms_of_powers_columns, norms_of_powers_sparse, norms_of_powers_matvec, refine_norms_of_powers, norms_of_powers_from_coarser_grid
+export norms_of_powers_columns, norms_of_powers_sparse, norms_of_powers_matvec, refine_norms_of_powers
 export compute_stationary_density, rigorous_error_bound
 export noise_variation, ulam_approximation_error
 
@@ -492,120 +492,8 @@ function norms_of_powers_sparse(P::AbstractMatrix, m::Int; rigorous::Bool = true
         block, verbose)
 end
 
-"""
-    refine_norms_of_powers(norms::Vector, m::Int)
-
-Refine norm bounds using sub-multiplicativity: ||P^{k+h}|| ≤ ||P^k|| · ||P^h||.
-
-Given computed bounds norms[k] ≥ ||P^k|_V||, this produces tighter bounds
-by checking all factorizations k = i + (k-i) and taking the minimum; the
-products are rounded upward.
-"""
-function refine_norms_of_powers(norms::Vector, m::Int=length(norms))
-    better_norms = fill(NaN, m)
-    better_norms[1] = norms[1]
-    for k in 2:m
-        better_norms[k] = minimum(mul_up(better_norms[i], better_norms[k-i]) for i in 1:k-1)
-        if k <= length(norms)
-            better_norms[k] = min(better_norms[k], norms[k])
-        end
-    end
-    return better_norms
-end
-
-"""
-    norms_of_powers_from_coarser_grid(coarse_norms, m, δ_coarse, n_fine, noise;
-                                      normQ::Float64=1.0,
-                                      dfly_coefficients=nothing)
-
-Estimate norms ||Q_{h_F}^k|_V|| on a fine grid from coarse grid norms C_k,
-using the coarse-fine strategy (Corollary 4.6 from Galatolo-Monge-Nisoli-Poloni 2014).
-
-The key formula is:
-    C_k^F ≤ C_k + δ_coarse · Σ_{j=0}^{k-1} C_{k-1-j} · (||Q_F|| · R_j + R_{j+1})
-
-where R_j = ||Q_F^j||_{Var→L¹} bounds the strong-to-weak norm, computed from the
-DFLY (iterated Lasota-Yorke inequality).
-
-For the Ulam discretization with noise:
-- Projection error: Kh = δ_coarse/2 (Lemma 6.3)
-- E = 0 (integral-preserving)
-- Default DFLY: A = 0, B = var(ρ) (noise regularization destroys variation)
-- M_1n = n_fine (strong-weak bound for fine grid)
-
-# Arguments
-- `coarse_norms`: Vector of C_k = ||Q_h^k|_V|| bounds from coarse grid
-- `m`: Number of power norms to compute
-- `δ_coarse`: Mesh size of coarse partition
-- `n_fine`: Number of boxes in fine partition (determines M_1n)
-- `noise`: Noise support box (for computing var(ρ))
-- `normQ`: Operator norm ||Q_{h_F}|| (default 1.0 for stochastic matrices)
-- `dfly_coefficients`: Tuple (A, B) for the Lasota-Yorke inequality.
-  Default: (0.0, var(ρ)) from noise regularization.
-
-# Returns
-- Vector of length m: fine_norms[k] is an upper bound on ||Q_{h_F}^k|_V||
-
-# Reference
-- Galatolo-Monge-Nisoli-Poloni (2014), Corollary 4.6
-"""
-function norms_of_powers_from_coarser_grid(coarse_norms::Vector, m::Int,
-                                           δ_coarse::Float64, n_fine::Int, noise;
-                                           normQ::Float64=1.0,
-                                           dfly_coefficients=nothing)
-    # Ulam constants
-    Kh = δ_coarse / 2       # weak projection error (K=1/2 for Ulam)
-    M_1n = Float64(n_fine)   # strong_weak_bound: Var(f) ≤ n when ||f||_{L^1} = 1
-    Eh = 0.0                 # aux_normalized_projection_error (Ulam is i-preserving)
-
-    # DFLY coefficients: Lasota-Yorke inequality ||Lf||_s ≤ A ||f||_s + B ||f||
-    if dfly_coefficients === nothing
-        # Default: noise regularization (A=0, B=var(ρ))
-        # After one noise convolution, Var(N_ξ g) ≤ Var(ρ) · ||g||_{L^1}
-        var_ρ = noise_variation(noise)
-        A, B = 0.0, var_ρ
-    else
-        A, B = dfly_coefficients
-    end
-
-    # Compute strong norm bounds R_k from DFLY iteration
-    # R_k bounds ||Q^k f||_s for ||f|| = 1
-    # Matrix iteration: [R_s; R_w] ← [A B; Eh 1] · [R_s; R_w]
-    # starting from [M_1n; 1]
-    mmax = min(m, length(coarse_norms))
-
-    # strongs0(k) = R_k (strong norm bound at power k)
-    strongs = Vector{Float64}(undef, mmax + 1)
-    R_s = M_1n  # k=0: strong-weak bound
-    R_w = 1.0   # k=0: aux-weak bound
-    strongs[1] = R_s  # index 1 = power 0
-
-    for k in 1:mmax
-        R_s_new = A * R_s + B * R_w
-        R_w_new = Eh * R_s_new + R_w
-        R_s = R_s_new
-        R_w = R_w_new
-        strongs[k + 1] = R_s  # index k+1 = power k
-    end
-
-    # C_k from coarse grid (with 0th element = 1)
-    coarse0(k::Int) = k == 0 ? 1.0 : coarse_norms[k]
-
-    # Apply Corollary 4.6:
-    # C_k^F ≤ C_k + 2*Kh * Σ_{j=0}^{k-1} C_{k-1-j} * (normQ * R_j + R_{j+1})
-    fine_norms = fill(NaN, mmax)
-    for k in 1:mmax
-        correction = 0.0
-        for j in 0:k-1
-            R_j = strongs[j + 1]        # power j
-            R_j1 = strongs[j + 2]       # power j+1
-            correction += coarse0(k - 1 - j) * (normQ * R_j + R_j1)
-        end
-        fine_norms[k] = coarse_norms[k] + 2 * Kh * correction
-    end
-
-    return fine_norms
-end
+# `refine_norms_of_powers` is the one of RigorousInvariantMeasures (C_{i+j} ≤ C_i C_j, upward).
+using RigorousInvariantMeasures: refine_norms_of_powers
 
 """
     find_contraction_power(P::AbstractMatrix;

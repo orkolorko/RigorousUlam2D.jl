@@ -11,13 +11,16 @@
 #     ~/ResearchData/RigorousUlam2D_Data/data/tree_deepen.<map>_d<d>_level<L>_area<B>[_xinv]_t<D1>.<host>.jls
 # a named tuple (map, depth, store_level, store_maxlevel, tag, levels, d0, d1, graph, L_lo, U, host,
 # script, commits, julia, threads, time) with the matrices indexed as build_uniform_partition(domain, d);
-# the store in ~/ResearchData/RigorousUlam2D_Data/bulk/tree_deepen.<map>_d<D0>-<D1>.store.<host>/.
+# the store in ~/ResearchData/RigorousUlam2D_Data/bulk/tree_deepen.<map>_d<D0>-<D1>.store.<host>/;
+# and a record (CertifiedRecords) data/tree_deepen.<commit>.<host>.tsv, one row per file, with the
+# counts and the widths of U as floating-point diagnostics.
 # One log line per depth on stdout: counts, column sums, the widths of U.
 #
 #   julia --project=. -t 32 bench/tree_deepen.jl
 
 using RigorousUlam2D, IntervalArithmetic, IntervalBoxes
 using SparseArrays, Printf, Dates
+using CertifiedRecords
 import Serialization
 
 const HOST = chomp(read(`hostname`, String))
@@ -38,10 +41,11 @@ const PKG = dirname(dirname(pathof(RigorousUlam2D)))
 const COMMITS = (; RigorousUlam2D = gitrev(PKG), dirty = gitdirty(PKG))
 COMMITS.dirty && error("$PKG has uncommitted changes in src, bench or the project files; commit before running")
 
-sys = MAP == "henon" ? henon_system(; bisect = BISECT, xinv = XINV) :
-      MAP == "lorenz" ? lorenz_system(; bisect = BISECT, xinv = XINV) : error("MAP must be henon or lorenz")
+sys = ulam_system(MAP; bisect = BISECT, xinv = XINV)
 tag = "level$(LEVEL)_area$(BISECT)$(XINV ? "_xinv" : "")_t$(D1)"
-outfile(d) = joinpath(ROOT, "data", "$SCRIPT.$(MAP)_d$(d)_$tag.$HOST.jls")
+outfile(d) = block_file(joinpath(ROOT, "data"), MAP, d; level = LEVEL, bisect = BISECT, xinv = XINV, d1 = D1, host = HOST)
+record = record_file(joinpath(ROOT, "data"), SCRIPT, RigorousUlam2D; host = HOST)
+header = run_header(RigorousUlam2D, "bench/$SCRIPT.jl")
 todo = filter(d -> !isfile(outfile(d)), collect(DEPTHS))
 store = joinpath(ROOT, "bulk", "$SCRIPT.$(MAP)_d$(D0)-$(D1).store.$HOST")
 
@@ -71,8 +75,13 @@ for m in mats
         MAP, tag, m.depth, tr, nnz(m.L_lo), nnz(m.U), lo..., hi..., colmax(m.U), rowmax(m.U))
     Serialization.serialize(outfile(m.depth), (; map = MAP, depth = m.depth, store_level = tree.level,
         store_maxlevel = tree.maxlevel, tag, levels = LEVEL, d0 = D0, d1 = D1, graph = m.graph, L_lo = m.L_lo,
-        U = m.U, host = HOST, script = SCRIPT, commits = COMMITS, julia = string(VERSION),
+        U = m.U, host = HOST, script = SCRIPT, commits = COMMITS, header, julia = string(VERSION),
         threads = Threads.nthreads(), time = tr))
+    # diagnostics, summed in floating point: not bounds
+    open_record(record, header, ["map", "depth", "level", "bisect", "xinv", "d1", "nnz_L_lo", "nnz_U",
+        "colsum_L_lo_min_fl", "colsum_L_hi_max_fl", "U_1_fl", "U_inf_fl", "read_seconds", "file"])
+    append_record(record, [MAP, m.depth, LEVEL, BISECT, XINV, D1, nnz(m.L_lo), nnz(m.U), lo[1], hi[2],
+        colmax(m.U), rowmax(m.U), round(tr; digits = 1), basename(outfile(m.depth))])
     flush(stdout)
 end
 @printf("total %.1f s\n", time() - t0)

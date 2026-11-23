@@ -5,6 +5,7 @@ authors = ["Isaia Nisoli"]
 
 [deps]
 BallArithmetic = "77e4f72b-b5a4-4fb0-ac2a-dcc32095a072"
+CertifiedRecords = "a1382eeb-e40a-4ccf-aad2-2f06b8114ecb"
 DataStructures = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 IntervalArithmetic = "d1acc4aa-44c8-5952-acd4-ba5d80a2a253"
@@ -17,11 +18,13 @@ SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 
 [sources]
 BallArithmetic = {path = "/home/isaia/Code/BallArithmetic.jl"}
+CertifiedRecords = {url = "https://github.com/orkolorko/CertifiedRecords.jl.git", rev = "d4b5b53fd34636298f0da2c4871ab1b96289ea90"}
 RigorousInvariantMeasures = {path = "/home/isaia/Code/RigorousInvariantMeasures.jl"}
 RigorousPseudospectra = {path = "/home/isaia/Code/RigorousPseudospectra.jl"}
 
 [compat]
 BallArithmetic = "0.4"
+CertifiedRecords = "0.0.1"
 DataStructures = "0.19.3"
 ForwardDiff = "1.2.1"
 IntervalArithmetic = "0.22.36, 1"

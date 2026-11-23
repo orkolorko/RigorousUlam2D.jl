@@ -23,6 +23,7 @@ include("transition_graph.jl")
 include("maps.jl")
 include("noisy_operator.jl")
 include("l1_error.jl")
+include("experiments.jl")
 
 # Re-export from submodules
 # Partition utilities

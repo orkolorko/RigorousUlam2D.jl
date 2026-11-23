@@ -294,6 +294,17 @@ end
         @test !isempty_interval(Ec) && !isdisjoint_interval(Eb, Ec) && diam(Ec) <= diam(Eb)
     end
 
+    @testset "fibred_area: crossing enclosures nested inside one another" begin
+        # x ↦ x² with an inverse hulling both branches: the crossings of the window's upper
+        # end enclose those of its lower end, and the gap after them must start past both
+        hull = (X, w) -> intersect_interval(interval(-sup(sqrt(w)), sup(sqrt(w))), X)
+        A = fibred_area(1, X -> X^2, (X, w) -> w; xinv = hull, bisect = 8)
+        r = A(IntervalBox(interval(-0.52, 0.58), interval(0.0, 1.0)),
+              IntervalBox(interval(0.25, 0.3), interval(0.0, 1.0)))
+        truth = ((sqrt(0.3) - 0.5) + (0.52 - 0.5)) / 1.1
+        @test inf(r) <= truth <= sup(r)
+    end
+
     @testset "areas at the leaves: the translation exact, Hénon tightened and consistent" begin
         c = 1 / 3
         shift_third = (x, y) -> (x + c, y)

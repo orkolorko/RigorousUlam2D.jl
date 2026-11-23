@@ -997,7 +997,8 @@ function _cut!(stack, X, depth, Wx, a, b, y0, y1, xcomp, xinv, yof)
     g2 = isempty_interval(C1) || isempty_interval(C2) || sup(C1) >= inf(C2) ? emptyinterval(Float64) :
          interval(sup(C1), inf(C2))                     # the crossings may overlap
     g3 = isempty_interval(C1) ? emptyinterval(Float64) :
-         isempty_interval(C2) ? interval(sup(C1), sup(X)) : interval(sup(C2), sup(X))
+         isempty_interval(C2) ? interval(sup(C1), sup(X)) :
+         interval(max(sup(C1), sup(C2)), sup(X))         # C2 may lie inside C1
     in1 = _inside(g1, Wx, xcomp); in2 = _inside(g2, Wx, xcomp); in3 = _inside(g3, Wx, xcomp)
     (in1 === nothing || in2 === nothing || in3 === nothing) && return nothing
     cut = interval(0.0)

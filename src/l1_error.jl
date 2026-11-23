@@ -118,9 +118,11 @@ end
 
 `ε1 ≥ ‖P_h v − v‖₁` and `ε2 ≥ |Σv − 1|` for the product `Amul(v) = fl(N L̂ v)` with the ℓ¹
 rounding model `‖fl(N L̂ v) − P_h v‖₁ ≤ η1 ‖v‖₁ + eta1A` of `noisy_operator`:
-`ε1 = Σ_i |fl(Av)_i − v_i|⁺ + η1 ‖v‖₁ + eta1A`, upward.
+`ε1 = Σ_i |fl(Av)_i − v_i| + η1 ‖v‖₁ + eta1A`, upward.  `v ≥ 0` is required, since
+`fixed_point_distance` uses `‖v‖₁ = Σv`.
 """
 function fixed_point_residual(Amul, v::AbstractVector{Float64}, η1::Float64, eta1A::Float64)
+    all(>=(0), v) || throw(ArgumentError("v has negative entries; fixed_point_distance needs v ≥ 0"))
     w = Vector{Float64}(Amul(v))
     r = 0.0
     @inbounds for i in eachindex(v)

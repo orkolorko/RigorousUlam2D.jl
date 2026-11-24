@@ -63,7 +63,7 @@ print(header)
 flush(stdout)
 
 tc = @elapsed C = norms_of_powers_columns(P.info.Bmul!, P.n, M; η1 = P.info.η1, eta1A = P.info.eta1A,
-    normP = P.normP, u, block = BLOCK)
+    normP = P.normP, u, block = BLOCK, verbose = true)
 Cr = refine_norms_of_powers(C, M)
 @printf("columns: %d × %d products in %.1f s\n", P.n, M, tc)
 open_record(powers, header * "# environment = $environment\n", ["j", "C", "C_refined", "bits"])

@@ -441,8 +441,8 @@ function norms_of_powers_columns(blockmul!, n::Int, m::Int; η1::Real, eta1A::Re
             end
         end
         k = Threads.atomic_add!(done, b) + b
-        verbose && k % (16 * block) < b &&
-            println("  columns $k / $n, $(round(time() - t0, digits = 1)) s")
+        verbose && k % max(block, n ÷ 100) < b &&                # about every 1% of the columns
+            (println("  columns $k / $n, $(round(time() - t0, digits = 1)) s"); flush(stdout))
     end
     if verbose
         for j in 1:m

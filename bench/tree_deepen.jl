@@ -15,6 +15,8 @@
 # and a record (CertifiedRecords) data/tree_deepen.<commit>.<host>.tsv, one row per file, with the
 # counts and the widths of U as floating-point diagnostics.
 # One log line per depth on stdout: counts, column sums, the widths of U.
+# Every row names, in its column `environment`, the copy of the Manifest of the run written
+# beside the record by `save_environment`, with the commits of the dependencies given by path.
 #
 #   julia --project=. -t 32 bench/tree_deepen.jl
 
@@ -46,6 +48,7 @@ tag = "level$(LEVEL)_area$(BISECT)$(XINV ? "_xinv" : "")_t$(D1)"
 outfile(d) = block_file(joinpath(ROOT, "data"), MAP, d; level = LEVEL, bisect = BISECT, xinv = XINV, d1 = D1, host = HOST)
 record = record_file(joinpath(ROOT, "data"), SCRIPT, RigorousUlam2D; host = HOST)
 header = run_header(RigorousUlam2D, "bench/$SCRIPT.jl")
+environment = save_environment(record)
 todo = filter(d -> !isfile(outfile(d)), collect(DEPTHS))
 store = joinpath(ROOT, "bulk", "$SCRIPT.$(MAP)_d$(D0)-$(D1).store.$HOST")
 
@@ -75,13 +78,13 @@ for m in mats
         MAP, tag, m.depth, tr, nnz(m.L_lo), nnz(m.U), lo..., hi..., colmax(m.U), rowmax(m.U))
     Serialization.serialize(outfile(m.depth), (; map = MAP, depth = m.depth, store_level = tree.level,
         store_maxlevel = tree.maxlevel, tag, levels = LEVEL, d0 = D0, d1 = D1, graph = m.graph, L_lo = m.L_lo,
-        U = m.U, host = HOST, script = SCRIPT, commits = COMMITS, header, julia = string(VERSION),
+        U = m.U, host = HOST, script = SCRIPT, commits = COMMITS, header, environment, julia = string(VERSION),
         threads = Threads.nthreads(), time = tr))
     # diagnostics, summed in floating point: not bounds
     open_record(record, header, ["map", "depth", "level", "bisect", "xinv", "d1", "nnz_L_lo", "nnz_U",
-        "colsum_L_lo_min_fl", "colsum_L_hi_max_fl", "U_1_fl", "U_inf_fl", "read_seconds", "file"])
+        "colsum_L_lo_min_fl", "colsum_L_hi_max_fl", "U_1_fl", "U_inf_fl", "read_seconds", "file", "environment"])
     append_record(record, [MAP, m.depth, LEVEL, BISECT, XINV, D1, nnz(m.L_lo), nnz(m.U), lo[1], hi[2],
-        colmax(m.U), rowmax(m.U), round(tr; digits = 1), basename(outfile(m.depth))])
+        colmax(m.U), rowmax(m.U), round(tr; digits = 1), basename(outfile(m.depth)), environment])
     flush(stdout)
 end
 @printf("total %.1f s\n", time() - t0)

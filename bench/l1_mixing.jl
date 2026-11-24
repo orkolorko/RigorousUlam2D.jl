@@ -15,6 +15,8 @@
 #     l1_mixing.<map>_d<depth>_a<p>-<q>.<commit>.<host>.tsv  j, C_j and refined C_j as exact doubles
 #     l1_mixing.<commit>.<host>.tsv                         one row per (map, depth, a): Σ and the bound
 # A configuration already in the second record is not run again.
+# Every row names, in its column `environment`, the copy of the Manifest of the run written
+# beside the record by `save_environment`, with the commits of the dependencies given by path.
 #
 #   julia --project=. -t 16 bench/l1_mixing.jl
 
@@ -37,6 +39,7 @@ summary = record_file(DATADIR, SCRIPT, RigorousUlam2D)
     (println("$MAP depth $DEPTH a = $A is in $(basename(summary))"); exit())
 powers = record_file(DATADIR, "$SCRIPT.$(MAP)_d$(DEPTH)_$amp", RigorousUlam2D)
 isfile(powers) && error("$powers exists without its summary row; remove it to run again")
+environment = save_environment(summary)
 
 sys = ulam_system(MAP)
 blkfile = block_file(DATADIR, MAP, DEPTH)
@@ -63,7 +66,7 @@ tc = @elapsed C = norms_of_powers_columns(P.info.Bmul!, P.n, M; η1 = P.info.η1
     normP = P.normP, u, block = BLOCK)
 Cr = refine_norms_of_powers(C, M)
 @printf("columns: %d × %d products in %.1f s\n", P.n, M, tc)
-open_record(powers, header, ["j", "C", "C_refined", "bits"])
+open_record(powers, header * "# environment = $environment\n", ["j", "C", "C_refined", "bits"])
 for j in 1:M
     append_record(powers, [j, write_endpoint(C[j])[1], write_endpoint(Cr[j])[1], 53])
 end
@@ -74,8 +77,8 @@ err = s === nothing ? Inf : mul_up(s.V, defect)
 s === nothing ? println("no C_j below 1 up to j = $M") :
     @printf("Σ_grid ≤ %.6g at k = %d (α = %.6g), Σ_V ≤ %.6g; ‖f_ξ − f_h‖₁ ≤ %.6g\n", s.grid, s.k, s.α, s.V, err)
 open_record(summary, run_header(RigorousUlam2D, "bench/$SCRIPT.jl"),
-    ["map", "depth", "a", "n", "M", "powers_file", "Sigma_grid", "Sigma_V", "k", "defect", "err_apriori", "seconds"])
+    ["map", "depth", "a", "n", "M", "powers_file", "Sigma_grid", "Sigma_V", "k", "defect", "err_apriori", "seconds", "environment"])
 append_record(summary, [MAP, DEPTH, A, P.n, M, basename(powers),
     s === nothing ? "Inf" : write_endpoint(s.grid)[1], s === nothing ? "Inf" : write_endpoint(s.V)[1],
-    s === nothing ? 0 : s.k, write_endpoint(defect)[1], err === Inf ? "Inf" : write_endpoint(err)[1], round(tc; digits = 1)])
+    s === nothing ? 0 : s.k, write_endpoint(defect)[1], err === Inf ? "Inf" : write_endpoint(err)[1], round(tc; digits = 1), environment])
 println("recorded in $(basename(powers)) and $(basename(summary))")

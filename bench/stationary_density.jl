@@ -12,6 +12,8 @@
 #     stationary_density.<commit>.<host>.tsv   (CertifiedRecords) one row per (map, depth, a), the
 #                                              bounds as exact doubles
 # A configuration already in the record is not run again.
+# Every row names, in its column `environment`, the copy of the Manifest of the run written
+# beside the record by `save_environment`, with the commits of the dependencies given by path.
 #
 #   julia --project=. -t 16 bench/stationary_density.jl
 
@@ -37,6 +39,7 @@ blkfile = block_file(DATADIR, MAP, DEPTH)
 t0 = time()
 P = noisy_ulam_operator(ulam_system(MAP), Serialization.deserialize(blkfile), DEPTH, A)
 header = run_header(RigorousUlam2D, "bench/$SCRIPT.jl")
+environment = save_environment(record)
 print(run_header(RigorousUlam2D, "bench/$SCRIPT.jl"; map = MAP, depth = DEPTH, a = A, tol = TOL, blockfile = basename(blkfile)))
 @printf("%s depth %d n = %d, a = %s, δ = %.6g, var(ρ_ξ) = %.6g; η₁ = %.3e, η₁ᴬ = %.3e (%.1f s)\n",
     MAP, DEPTH, P.n, A, P.δ, P.varρ, P.info.η1, P.info.eta1A, time() - t0)
@@ -48,9 +51,9 @@ defect = defect_apriori(P.δ, P.varρ, P.varρ)
 @printf("power iteration: %d iterations, last ℓ¹ change %.3e, converged %s (%.1f s)\n", fp.iterations, fp.diff, fp.converged, tp)
 @printf("ε₁ ≤ %.3e, ε₂ ≤ %.3e, var(f̃) ≤ %.6g, 2δ var(ρ_ξ) = %.6g\n", res.ε1, res.ε2, varf, defect)
 
-Serialization.serialize(densfile, (; map = MAP, depth = DEPTH, a = A, density = fp.v, header))
+Serialization.serialize(densfile, (; map = MAP, depth = DEPTH, a = A, density = fp.v, header, environment))
 open_record(record, header, ["map", "depth", "a", "n", "iterations", "converged", "eps1", "eps2", "varf", "defect",
-    "blockfile", "density_file"])
+    "blockfile", "density_file", "environment"])
 append_record(record, [MAP, DEPTH, A, P.n, fp.iterations, fp.converged, write_endpoint(res.ε1)[1],
-    write_endpoint(res.ε2)[1], write_endpoint(varf)[1], write_endpoint(defect)[1], basename(blkfile), basename(densfile)])
+    write_endpoint(res.ε2)[1], write_endpoint(varf)[1], write_endpoint(defect)[1], basename(blkfile), basename(densfile), environment])
 println("recorded in $(basename(record)), density in $(basename(densfile)) ($(round(time() - t0; digits = 1)) s)")

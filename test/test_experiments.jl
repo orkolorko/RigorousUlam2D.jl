@@ -51,6 +51,10 @@ using Test
         @test length(dens) == 2 && all(r -> parse(Float64, r["eps2"]) < 1e-12, dens)
         _, pw = read_record(latest_record(data, "l1_mixing.lorenz_d6_a3-8"))
         @test length(pw) == 40 && all(r -> parse(Float64, r["C_refined"]) <= parse(Float64, r["C"]), pw)
+        for r in (dens..., pw[1:1]...)
+            haskey(r, "environment") && @test isfile(joinpath(data, r["environment"]))
+        end
+        @test all(r -> isfile(joinpath(data, r["environment"])), dens)
         _, tr = read_record(latest_record(data, "l1_transfer"))
         @test length(tr) == 1 && tr[1]["fine_depth"] == "7" && isfinite(parse(Float64, tr[1]["err"]))
         # a second run of a recorded configuration does nothing

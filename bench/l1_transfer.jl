@@ -14,6 +14,8 @@
 # Env: MAP, DEPTH (8), A (rational such as 77//256), FINE (comma-separated depths, "10,12").
 # Record (CertifiedRecords): ~/ResearchData/RigorousUlam2D_Data/data/l1_transfer.<commit>.<host>.tsv,
 # one row per (map, coarse depth, a, fine depth); a row already there is not computed again.
+# Every row names, in its column `environment`, the copy of the Manifest of the run written
+# beside the record by `save_environment`, with the commits of the dependencies given by path.
 #
 #   julia --project=. bench/l1_transfer.jl
 
@@ -31,6 +33,7 @@ const FINE = parse.(Int, split(get(ENV, "FINE", "10,12"), ","))
 rd(s) = Float64(read_endpoint(s, 53))                  # exact: written by write_endpoint
 record = record_file(DATADIR, SCRIPT, RigorousUlam2D)
 done = recorded_keys(record, "map", "coarse_depth", "a", "fine_depth")
+environment = save_environment(record)
 powers = latest_record(DATADIR, "l1_mixing.$(MAP)_d$(DEPTH)_a$(numerator(A))-$(denominator(A))")
 Cr = [rd(r["C_refined"]) for r in sort(last(read_record(powers)); by = r -> parse(Int, r["j"]))]
 densrec = latest_record(DATADIR, "stationary_density")
@@ -46,14 +49,14 @@ s === nothing ? println("no F_k below 1 up to k = $(length(F))") :
     @printf("F_k < 1 first at k = %d; Σ ≤ %.6g at k = %d (α = %.6g)\n", findfirst(<(1), F), s.grid, s.k, s.α)
 
 open_record(record, run_header(RigorousUlam2D, "bench/$SCRIPT.jl"),
-    ["map", "coarse_depth", "a", "fine_depth", "Sigma", "k", "defect", "err_apriori", "dist", "err", "powers_file", "densities_file"])
+    ["map", "coarse_depth", "a", "fine_depth", "Sigma", "k", "defect", "err_apriori", "dist", "err", "powers_file", "densities_file", "environment"])
 for d in FINE
     (MAP, string(DEPTH), string(A), string(d)) in done && continue
     i = findfirst(r -> r["map"] == MAP && r["depth"] == string(d) && r["a"] == string(A), dens)
     i === nothing && (println("depth $d: no row in $(basename(densrec))"); continue)
     defect, ε1, ε2 = rd(dens[i]["defect"]), rd(dens[i]["eps1"]), rd(dens[i]["eps2"])
     if s === nothing
-        append_record(record, [MAP, DEPTH, A, d, "Inf", 0, write_endpoint(defect)[1], "Inf", "Inf", "Inf", basename(powers), basename(densrec)])
+        append_record(record, [MAP, DEPTH, A, d, "Inf", 0, write_endpoint(defect)[1], "Inf", "Inf", "Inf", basename(powers), basename(densrec), environment])
         continue
     end
     err_apriori = mul_up(s.grid, defect)
@@ -62,6 +65,6 @@ for d in FINE
     @printf("depth %2d: 2δ' var(ρ_ξ) = %.6g, ‖f_ξ − f_h'‖₁ ≤ %.6g, ‖f̃ − f_h'‖₁ ≤ %.3e, ‖f_ξ − f̃‖₁ ≤ %.6g\n",
         d, defect, err_apriori, dist, err)
     append_record(record, [MAP, DEPTH, A, d, write_endpoint(s.grid)[1], s.k, write_endpoint(defect)[1],
-        write_endpoint(err_apriori)[1], write_endpoint(dist)[1], write_endpoint(err)[1], basename(powers), basename(densrec)])
+        write_endpoint(err_apriori)[1], write_endpoint(dist)[1], write_endpoint(err)[1], basename(powers), basename(densrec), environment])
 end
 println("recorded in $(basename(record))")

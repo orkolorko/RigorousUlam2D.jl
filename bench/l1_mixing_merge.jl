@@ -30,7 +30,7 @@ summary = record_file(DATADIR, SCRIPT, RigorousUlam2D)
 
 parts = map(PARTS) do f
     hdr, rows = read_record(joinpath(DATADIR, f))
-    params = filter(l -> occursin(" = ", l), hdr)
+    params = [lstrip(l, ['#', ' ']) for l in hdr if occursin(" = ", l)]
     (param(params, "map") == MAP && param(params, "depth") == string(DEPTH) && param(params, "a") == string(A)) ||
         error("$f is for another configuration")
     r = parse.(Int, split(param(params, "cols"), ":"))

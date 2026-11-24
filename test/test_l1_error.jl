@@ -26,29 +26,11 @@ const RIMl = RigorousInvariantMeasures
 
     @testset "the constants against BigFloat" begin
         setprecision(BigFloat, 256) do
-            CM = 1 / (2 * sqrt(big(2)))
-            @test RigorousUlam2D.C_M_UP >= CM && RigorousUlam2D.C_M_UP - CM < 1e-16
-            δ, varρ, varf = sqrt(2) / 64, 2 / 0.3, 3.7
-            @test defect_apriori(δ, varρ, varf) >= 1.5 * big(δ) * varρ + 0.5 * big(δ) * varf
-            s = sigma_from_circle(4.0, varρ, 9.2)
-            @test s.grid == s.V && s.V >= 1 + 2 * CM * big(varρ) * 9.2
-            # sigma_from_gap: the block sum at its k, with C_0 = C_1 = 1 and C_i ≤ min(1, K rⁱ)
-            K, r = 2330.0, 0.6342
-            g = sigma_from_gap(K, r)
-            α = big(K) * big(r)^g.k
-            S = (2 + sum(min(1, big(K) * big(r)^i) for i in 2:g.k-1)) / (1 - α)
-            @test α < 1 && g.grid >= S && g.grid - S < 1e-10 * S && g.V >= 1 + S
-            @test g.α >= α
-            # no k does better by more than rounding
-            for k in 2:400
-                αk = big(K) * big(r)^k
-                αk < 1 || continue
-                Sk = (2 + sum(min(1, big(K) * big(r)^i) for i in 2:k-1; init = big(0))) / (1 - αk)
-                @test g.grid <= Sk * (1 + 1e-12)
-            end
-            @test_throws ArgumentError sigma_from_gap(K, 1.0)
+            h, varρ = 2 / 64, 2 / 0.3
+            @test defect_apriori(h, varρ) >= 1.5 * big(h) * big(varρ)
+            @test defect_apriori(h, varρ) <= 1.5 * big(h) * big(varρ) * (1 + 1e-15)
         end
-        @test fixed_point_distance(10.0, 1e-14, 1e-16) >= 10 * 1e-14 + 1e-16
+        @test fixed_point_distance(10.0, 1e-14, 1e-16) >= 10 * big(1e-14) / (1 - big(1e-16)) + big(1e-16)
         @test_throws ArgumentError fixed_point_distance(10.0, 1e-14, 1.0)
     end
 
@@ -95,18 +77,13 @@ const RIMl = RigorousInvariantMeasures
         Pv = I - ones(n) * ones(n)' / n              # onto zero-sum vectors
         Rinv = pinv(Matrix(I - Ad)) * Pv
         Σexact = opnorm(Rinv, 1)
-        # the gap route with K, r from the dense data: r just above |λ₂|, R_Γ the resolvent on |z| = r
-        λs = sort(F.values; by = abs, rev = true)
-        r = 1.02 * abs(λs[2])
-        RΓ = maximum(opnorm(inv(Ad - r * cis(θ) * I)) for θ in range(0, 2π; length = 721))
-        K = 2 * RigorousUlam2D.C_M_UP * (2 / 0.5) * RΓ
-        g = sigma_from_gap(K, r)
-        @test g.grid >= Σexact
-        # the circle route: the resolvent on |z − 1| = 0.25
-        R1 = maximum(opnorm(inv(Ad - (1 + 0.25 * cis(θ)) * I)) for θ in range(0, 2π; length = 721))
-        c = sigma_from_circle(4.0, 2 / 0.5, R1)
-        @test c.grid >= Σexact
-        @test norm(fp.v - fh, 1) <= fixed_point_distance(g.grid, res.ε1, res.ε2)
+        # the column sweep bounds the norms of the powers of the midpoint operator on V_h
+        C = norms_of_powers_columns(info.Bmul!, n, 20; η1 = info.η1, eta1A = info.eta1A,
+                                    normP = info.colL + info.colE + 1e-15, u = fp.v, block = 4)   # ≥ ‖L_lo + U‖₁
+        for j in 1:20
+            @test opnorm(Ad^j * Pv, 1) / 2 <= C[j]      # (e_i − e_j)/2 span the unit ball of V_h
+        end
+        @test norm(fp.v - fh, 1) <= fixed_point_distance(Σexact * (1 + 1e-12), res.ε1, res.ε2)
     end
 
     @testset "coarse_fine_norms bounds the norms of a finer operator (Lorenz, depths 6 and 7)" begin
@@ -120,8 +97,8 @@ const RIMl = RigorousInvariantMeasures
         nc = 4^6; M = 30
         u = ulam_fixed_point(ic.Amul, nc).v
         C = norms_of_powers_columns(ic.Bmul!, nc, M; η1 = ic.η1, eta1A = ic.eta1A, u, block = 64)
-        δ = mul_up(sqrt_up(2.0), 1 / 64); varρ = div_up(16.0, 3.0)   # 2/a
-        F = coarse_fine_norms(refine_norms_of_powers(C, M), δ, varρ)
+        h = 1 / 64; varρ = div_up(16.0, 3.0)                       # 2/a
+        F = coarse_fine_norms(refine_norms_of_powers(C, M), h, varρ)
         @test length(F) == M + 1 && all(<=(1), F) && any(<(1), F)
         # a lower bound on ‖P_f^k|_V‖₁: half the largest distance between the images of 48
         # cells, as (e_i − e_j)/2 lies in the unit ball of V; the fine operator is the computed one
@@ -140,15 +117,15 @@ const RIMl = RigorousInvariantMeasures
     @testset "swapped_error against BigFloat" begin
         Random.seed!(11)
         for _ in 1:200
-            Σ, δ, varρ = 1 + 50rand(), rand() / 100, 1 + 20rand()
+            Σ, h, varρ = 1 + 50rand(), rand() / 100, 1 + 20rand()
             ε1, ε2 = rand() * 1e-10, rand() * 1e-10
-            b = swapped_error(Σ, δ, varρ, ε1, ε2)
+            b = swapped_error(Σ, h, varρ, ε1, ε2)
             exact = setprecision(BigFloat, 256) do
                 B = big
-                B(Σ) * (B(3) / 2 * B(δ) * B(varρ) + B(ε1) / (1 - B(ε2))) + B(ε2) * (1 + B(ε2)) / (1 - B(ε2))
+                B(Σ) * (B(h) * B(varρ) + B(ε1) / (1 - B(ε2))) + B(ε2)
             end
             @test b >= exact && b <= exact * (1 + 1e-14)
-            @test b < mul_up(Σ, 2δ * varρ)       # below the direct route when the residuals are small
+            @test b < mul_up(Σ, defect_apriori(h, varρ))   # below the direct route when the residuals are small
         end
         @test_throws ArgumentError swapped_error(1.0, 0.1, 1.0, 0.0, 1.0)
     end

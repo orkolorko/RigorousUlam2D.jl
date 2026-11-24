@@ -4,7 +4,7 @@
 # on the masses; ε₁ ≥ ‖P_h f̃ − f̃‖₁ and ε₂ ≥ |Σ f̃ − 1| (`fixed_point_residual`, with the ℓ¹ rounding
 # model η₁ of `noisy_operator`, which covers the rounding of the products and the enclosure of L);
 # var(f̃), the variation on the torus of the piecewise-constant density (`grid_variation`); and the
-# a priori defect 2δ var(ρ_ξ) ≥ ‖(L_ξ − P_h) f_ξ‖₁ of src/l1_error.jl.
+# a priori defect (3h/2) var(ρ_ξ) ≥ ‖(L_ξ − P_h) f_ξ‖₁ of src/l1_error.jl.
 #
 # Env: MAP, DEPTH, A (rational such as 51//512), TOL (1e-14), MAXITER (20000).  Output, in
 # ~/ResearchData/RigorousUlam2D_Data/data:
@@ -41,15 +41,15 @@ P = noisy_ulam_operator(ulam_system(MAP), Serialization.deserialize(blkfile), DE
 header = run_header(RigorousUlam2D, "bench/$SCRIPT.jl")
 environment = save_environment(record)
 print(run_header(RigorousUlam2D, "bench/$SCRIPT.jl"; map = MAP, depth = DEPTH, a = A, tol = TOL, blockfile = basename(blkfile)))
-@printf("%s depth %d n = %d, a = %s, δ = %.6g, var(ρ_ξ) = %.6g; η₁ = %.3e, η₁ᴬ = %.3e (%.1f s)\n",
-    MAP, DEPTH, P.n, A, P.δ, P.varρ, P.info.η1, P.info.eta1A, time() - t0)
+@printf("%s depth %d n = %d, a = %s, h = %.6g, var(ρ_ξ) = %.6g; η₁ = %.3e, η₁ᴬ = %.3e (%.1f s)\n",
+    MAP, DEPTH, P.n, A, P.h, P.varρ, P.info.η1, P.info.eta1A, time() - t0)
 
 tp = @elapsed fp = ulam_fixed_point(P.info.Amul, P.n; tol = TOL, maxiter = MAXITER)
 res = fixed_point_residual(P.info.Amul, fp.v, P.info.η1, P.info.eta1A)
 varf = grid_variation(fp.v, P.k, P.h)
-defect = defect_apriori(P.δ, P.varρ, P.varρ)
+defect = defect_apriori(P.h, P.varρ)
 @printf("power iteration: %d iterations, last ℓ¹ change %.3e, converged %s (%.1f s)\n", fp.iterations, fp.diff, fp.converged, tp)
-@printf("ε₁ ≤ %.3e, ε₂ ≤ %.3e, var(f̃) ≤ %.6g, 2δ var(ρ_ξ) = %.6g\n", res.ε1, res.ε2, varf, defect)
+@printf("ε₁ ≤ %.3e, ε₂ ≤ %.3e, var(f̃) ≤ %.6g, (3h/2) var(ρ_ξ) = %.6g\n", res.ε1, res.ε2, varf, defect)
 
 Serialization.serialize(densfile, (; map = MAP, depth = DEPTH, a = A, density = fp.v, header, environment))
 open_record(record, header, ["map", "depth", "a", "n", "iterations", "converged", "eps1", "eps2", "varf", "defect",

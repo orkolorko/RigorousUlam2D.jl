@@ -44,23 +44,23 @@ function record_file(dir::AbstractString, prefix::AbstractString, mod::Module; h
 end
 
 """
-    grid_constants(sys, depth, a) -> (; k, h, δ, varρ, area)
+    grid_constants(sys, depth, a) -> (; k, h, varρ, area)
 
 For the map `sys` on the grid of depth `depth` and the uniform noise on `[-a, a]²`: `k = 2^depth`
-cells a side, the side `h` of a cell (a dyadic fraction, exact), its diameter `δ = √2 h` and
-`var(ρ_ξ) = 2/a` (lem:square_variation), both rounded upward, and the area of the domain.
+cells a side, the side `h` of a cell (a dyadic fraction, exact), `var(ρ_ξ) = V_1 + V_2 = 2/a`
+(lem:square_variation) rounded upward, and the area of the domain.
 """
 function grid_constants(sys, depth::Int, a::Rational)
     Float64(a) == a || throw(ArgumentError("a = $a is not a double"))
     side = sup(sys.domain[1]) - inf(sys.domain[1])    # 1 or 2, exact
     k = 2^depth
     h = side / k
-    return (; k, h, δ = mul_up(sqrt_up(2.0), h), varρ = div_up(2.0 * denominator(a), Float64(numerator(a))),
+    return (; k, h, varρ = div_up(2.0 * denominator(a), Float64(numerator(a))),
             area = side * side)
 end
 
 """
-    noisy_ulam_operator(sys, blk, depth, a) -> (; op, info, n, k, h, δ, varρ, area, N, normP)
+    noisy_ulam_operator(sys, blk, depth, a) -> (; op, info, n, k, h, varρ, area, N, normP)
 
 The noisy Ulam operator `P_h = π N_ξ π L π` of the map `sys` (`ulam_system`) on the grid of
 depth `depth`, from a block `blk` of `bench/tree_deepen.jl` (`L_lo ≤ L ≤ L_lo + U`, indexed as
@@ -87,17 +87,17 @@ parts of a split run can be checked to have read the same input.
 file_sha256(path::AbstractString) = bytes2hex(open(SHA.sha256, path))
 
 """
-    record_column_sweep(datadir, script, map, depth, a, C, header, environment, seconds; δ, varρ, n)
+    record_column_sweep(datadir, script, map, depth, a, C, header, environment, seconds; h, varρ, n)
 
 What `bench/l1_mixing.jl` and `bench/l1_mixing_merge.jl` record of a whole column sweep: the
 bounds `C[j] ≥ ‖P_h^j|_{V_h}‖₁`, refined by submultiplicativity, in their own record
 `<script>.<map>_d<depth>_a<p>-<q>.<commit>.<host>.tsv` (columns `j`, `C`, `C_refined`, `bits`,
 exact doubles), and one row of the summary `<script>.<commit>.<host>.tsv`: `sigma_from_norms` of
-the refined bounds, the a priori defect `2δ var(ρ_ξ)` and `Σ_V · 2δ var(ρ_ξ)`.  Returns the
+the refined bounds, the a priori defect `(3h/2) var(ρ_ξ)` (`defect_apriori`) and `Σ_V` times it.  Returns the
 `sigma_from_norms` result, or `nothing` when no bound is below 1.
 """
 function record_column_sweep(datadir, script, map, depth, a::Rational, C::Vector{Float64}, header,
-                             environment, seconds; δ, varρ, n)
+                             environment, seconds; h, varρ, n)
     M = length(C)
     amp = "a$(numerator(a))-$(denominator(a))"
     summary = record_file(datadir, script, RigorousUlam2D)
@@ -108,7 +108,7 @@ function record_column_sweep(datadir, script, map, depth, a::Rational, C::Vector
         append_record(powers, [j, write_endpoint(C[j])[1], write_endpoint(Cr[j])[1], 53])
     end
     s = any(<(1), Cr) ? sigma_from_norms(Cr) : nothing
-    defect = defect_apriori(δ, varρ, varρ)
+    defect = defect_apriori(h, varρ)
     err = s === nothing ? Inf : mul_up(s.V, defect)
     open_record(summary, run_header(RigorousUlam2D, "bench/$script.jl"),
         ["map", "depth", "a", "n", "M", "powers_file", "Sigma_grid", "Sigma_V", "k", "defect", "err_apriori",

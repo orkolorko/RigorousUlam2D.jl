@@ -11,7 +11,7 @@ using Serialization: deserialize
         @test_throws ArgumentError ulam_system("tent")
         g = grid_constants(ulam_system("henon"), 6, 77 // 256)
         @test g.k == 64 && g.h == 2 / 64 && g.area == 4
-        @test g.δ >= sqrt(big(2)) * g.h && g.varρ >= big(2) * 256 / 77
+        @test g.varρ >= big(2) * 256 / 77 && !hasproperty(g, :δ)
         @test_throws ArgumentError grid_constants(ulam_system("henon"), 6, 1 // 3)
         @test basename(block_file("/x", "lorenz", 9; host = "ibis")) == "tree_deepen.lorenz_d9_level14_area30_xinv_t12.ibis.jls"
         # a record name is found by latest_record, and the per-configuration names are not

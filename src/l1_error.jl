@@ -1,12 +1,18 @@
 """
 The L¹ distance between the stationary density `f_ξ` of `L_ξ = N_ξ L_T` and the stationary
 density `f_h` of its Ulam discretisation `P_h = π_h N_ξ π_h L_T π_h` on the square grid of cell
-side `h`, from the certified spectral data of `P_h` and the estimates of the paper (Theorems A
-and D, prop:gap_to_mixing, eq:reduced_resolvent, eq:l1tol2 of RigorousUlam2D.tex), and the
-distance between `f_h` and a computed vector `f̃`.
+side `h`, and between `f_ξ` and a computed vector `f̃`, from bounds on the norms of the powers of
+`P_h` on the zero-sum vectors (`norms_of_powers_columns`, `coarse_fine_norms`).
 
 Vectors are in the grid order of `noisy_operator.jl` and hold cell masses: the function with
 values `m_i / h²` on the cells, `‖f‖_{L¹} = Σ|m_i|`.
+
+**The constants.** For `ρ_ξ` the uniform density on `[-a, a]²`, `V_i(ρ_ξ) = 1/a` is its variation
+in the direction `e_i`, and `var(ρ_ξ) := V_1(ρ_ξ) + V_2(ρ_ξ) = 2/a`.  On the grid of squares of
+side `h` (math/local_ly_2d.tex, Lemma "square cell" and Proposition "two projection constants"):
+
+    ‖(I − π_h) N_ξ‖₁ ≤ (h/2) var(ρ_ξ),   ‖N_ξ (I − π_h)‖₁ ≤ (h/2) var(ρ_ξ),
+    ‖(I − π_h) f‖₁ ≤ (h/2) (V_1(f) + V_2(f)).
 
 **The scheme.** With `e := f_ξ − f_h ∈ V` (both densities integrate to one),
 
@@ -15,46 +21,21 @@ values `m_i / h²` on the cells, `‖f‖_{L¹} = Σ|m_i|`.
 so `‖e‖₁ ≤ Σ_V · ‖(L_ξ − P_h) f_ξ‖₁` with `Σ_V ≥ ‖(I − P_h)⁻¹|_V‖_{L¹→L¹}`.
 
 **The defect** (`defect_apriori`). Writing
-`L_ξ − P_h = (I − π_h) N_ξ L_T + π_h N_ξ (I − π_h) L_T + π_h N_ξ π_h L_T (I − π_h)` and using
-Theorem D with `δ` the diameter of a cell (`√2 h` for a square cell): (i) and (iii) on the first
-term, `‖(I − π_h) N_ξ g‖₁ ≤ (δ/2) var(N_ξ g) ≤ (δ/2) var(ρ_ξ) ‖g‖₁`; (ii) and (iv) on the second,
-`‖N_ξ (I − π_h) g‖₁ ≤ var(ρ_ξ) ‖(I − π_h) g‖_W ≤ δ var(ρ_ξ) ‖g‖₁`; (i) on the third, the operators
-in front being L¹ contractions, `≤ (δ/2) var(g)`.  Hence, for `g = f_ξ`,
-
-    ‖(L_ξ − P_h) f_ξ‖₁ ≤ (3δ/2) var(ρ_ξ) + (δ/2) var(f_ξ),
-
-and `var(f_ξ) = var(L_ξ f_ξ) ≤ var(ρ_ξ)` by Theorem A, so `2δ var(ρ_ξ)` a priori.  For the uniform
-density on `[-a, a]²`, `var(ρ_ξ) = 8a / (4a²) = 2/a`.
+`L_ξ − P_h = (I − π_h) N_ξ L_T + π_h N_ξ (I − π_h) L_T + π_h N_ξ π_h L_T (I − π_h)`, the first two
+terms are at most `(h/2) var(ρ_ξ)` each on a density, and the third at most
+`(h/2)(V_1 + V_2)(f_ξ)`; `f_ξ = N_ξ (L_T f_ξ)` gives `V_i(f_ξ) ≤ V_i(ρ_ξ)` (Lemma "moll" there), so
+`‖(L_ξ − P_h) f_ξ‖₁ ≤ (3h/2) var(ρ_ξ)` a priori.
 
 **The resolvent on `V`.** For `v ∈ V`, `(I − P_h)⁻¹ v = v + (I − P_h)⁻¹ P_h v` with
-`P_h v ∈ V_h`, the zero-sum grid vectors, and `‖P_h v‖₁ ≤ ‖v‖₁`; so
-`Σ_V ≤ 1 + Σ_grid` with `Σ_grid ≥ ‖(I − P_h)⁻¹|_{V_h}‖_{L¹→L¹}`, and two bounds on it.
-
-- `sigma_from_gap(K, r)`: prop:gap_to_mixing gives `C_i := ‖P_h^i|_{V_h}‖_{L¹} ≤ K rⁱ` for
-  `i ≥ 2`, with `K = |M|^{1/2} C_M var(ρ_ξ) R_Γ`, `R_Γ ≥ sup_{|z| = r} ‖(P_h − z)⁻¹‖₂`, and
-  `C_i ≤ 1` for every `i` since `P_h` is a Markov operator.  For `k` with `α := K rᵏ < 1`,
-  `Σ_{j ≥ 0} P_h^j = Σ_{m ≥ 0} P_h^{mk} Σ_{i < k} P_h^i` on `V_h` and `‖P_h^{mk}|_{V_h}‖ ≤ αᵐ`, so
-
-      Σ_grid ≤ Σ_{i < k} min(1, K rⁱ) / (1 − α),
-
-  minimised over `k ≥ 2`.
-- `sigma_from_circle(area, varρ, R1)`: for `v ∈ V`, eq:l1tol2 gives
-  `‖P_h v‖_{L²} ≤ C_M var(ρ_ξ) ‖v‖₁` (Theorem A and the zero-mean BV–Sobolev embedding,
-  `C_M = 1/(2√2)`), eq:reduced_resolvent gives `‖(I − P_h)⁻¹|_{V_h}‖₂ ≤ R₁` from a circle
-  `|z − 1| = ρ` holding only the eigenvalue 1 with `‖(P_h − z)⁻¹‖₂ ≤ R₁` on it (the Kato
-  integral, in which `ρ` cancels), and `‖g‖₁ ≤ |M|^{1/2} ‖g‖₂`; so
-
-      Σ_V ≤ 1 + |M|^{1/2} C_M var(ρ_ξ) R₁,
-
-  which bounds `Σ_grid` as well (`V_h ⊂ V`).  The ℓ² and L² operator norms coincide on the
-  uniform grid.
+`P_h v ∈ V_h`, the zero-sum grid vectors, and `‖P_h v‖₁ ≤ ‖v‖₁`; so `Σ_V ≤ 1 + Σ_grid` with
+`Σ_grid ≥ ‖(I − P_h)⁻¹|_{V_h}‖_{L¹→L¹}`, which `sigma_from_norms` bounds from `C_i ≥ ‖P_h^i|_{V_h}‖₁`.
 
 **The computed vector** (`fixed_point_residual`, `fixed_point_distance`).  For `f̃ ≥ 0` with
 `s := Σ f̃`, `|s − 1| ≤ ε₂`, and `‖P_h f̃ − f̃‖₁ ≤ ε₁`: `u := f̃/s` has `u − f_h ∈ V_h` and
 `(I − P_h)(u − f_h) = (f̃ − P_h f̃)/s`, so `‖u − f_h‖₁ ≤ Σ_grid ε₁ / (1 − ε₂)`, and
-`‖f̃ − u‖₁ = |1 − 1/s| ‖f̃‖₁ ≤ ε₂ (1 + ε₂) / (1 − ε₂)`; together
+`‖f̃ − u‖₁ = |1 − 1/s| ‖f̃‖₁ = |s − 1| ≤ ε₂` (`f̃ ≥ 0`, so `‖f̃‖₁ = s`); together
 
-    ‖f̃ − f_h‖₁ ≤ (Σ_grid ε₁ + ε₂ (1 + ε₂)) / (1 − ε₂).
+    ‖f̃ − f_h‖₁ ≤ Σ_grid ε₁ / (1 − ε₂) + ε₂.
 
 The residual `ε₁` is the ℓ¹ norm of the computed `fl(N L̂ f̃) − f̃` plus the ℓ¹ rounding model of
 `noisy_operator` (`η₁ ‖f̃‖₁ + η₁ᴬ`), which covers the rounding of both products and the
@@ -63,10 +44,7 @@ enclosure `L_lo ≤ L ≤ L_lo + U`.  The variation of the computed density on t
 """
 
 export grid_variation, ulam_fixed_point, fixed_point_residual, fixed_point_distance,
-    sigma_from_norms, sigma_from_gap, sigma_from_circle, defect_apriori, coarse_fine_norms, swapped_error
-
-"`1/(2√2) = √2/4` rounded upward: the constant of lem:sobolev2d."
-const C_M_UP = sqrt_up(2.0) / 4
+    sigma_from_norms, defect_apriori, coarse_fine_norms, swapped_error
 
 _sum_up(v) = foldl(add_up, v; init = 0.0)
 _sum_down(v) = -foldl((s, x) -> add_up(s, -x), v; init = 0.0)
@@ -136,13 +114,12 @@ end
 """
     fixed_point_distance(Σgrid, ε1, ε2) -> bound
 
-`‖f̃ − f_h‖₁ ≤ (Σgrid ε1 + ε2 (1 + ε2)) / (1 − ε2)` of the file docstring, upward.
+`‖f̃ − f_h‖₁ ≤ Σgrid ε1 / (1 − ε2) + ε2` of the file docstring, upward.
 """
 function fixed_point_distance(Σgrid::Float64, ε1::Float64, ε2::Float64)
     ε2 < 1 || throw(ArgumentError("the mass defect ε2 = $ε2 must be below 1"))
-    num = add_up(mul_up(Σgrid, ε1), mul_up(ε2, add_up(1.0, ε2)))
     den = -sub_up(ε2, 1.0)                 # 1 − ε2 rounded downward
-    return div_up(num, den)
+    return add_up(div_up(mul_up(Σgrid, ε1), den), ε2)
 end
 
 """
@@ -170,86 +147,52 @@ function sigma_from_norms(C::AbstractVector{<:Real})
 end
 
 """
-    sigma_from_gap(K, r; kmax = 100_000) -> (; grid, V, k, α)
+    defect_apriori(h, varρ) -> bound
 
-`sigma_from_norms` on `C_1 = 1`, `C_i = K rⁱ` for `2 ≤ i ≤ kmax` (rounded upward), from
-prop:gap_to_mixing, see the file docstring; the sequence stops once `K rⁱ` is below the unit
-roundoff, beyond which `1/(1 − α)` is 1 to working precision while the sum keeps growing.
+`‖(L_ξ − P_h) f_ξ‖₁ ≤ (3h/2) var(ρ_ξ)` on the grid of squares of side `h`, with
+`var(ρ_ξ) = V_1(ρ_ξ) + V_2(ρ_ξ)`; see the file docstring.  Upward.
 """
-function sigma_from_gap(K::Float64, r::Float64; kmax::Int = 100_000)
-    0 < r < 1 || throw(ArgumentError("the rate r = $r must be in (0, 1)"))
-    K > 0 || throw(ArgumentError("K = $K must be positive"))
-    C = [1.0]
-    rk = mul_up(r, r)                      # rᵏ for k = 2, upward
-    for k in 2:kmax
-        α = mul_up(K, rk)
-        push!(C, α)
-        α < eps(Float64) && break
-        rk = mul_up(rk, r)
-        rk == 0 && break
-    end
-    any(<(1), C) || throw(ArgumentError("K rᵏ never fell below 1 within kmax"))
-    return sigma_from_norms(C)
-end
+defect_apriori(h::Float64, varρ::Float64) = mul_up(mul_up(1.5, h), varρ)
 
 """
-    sigma_from_circle(area, varρ, R1) -> (; grid, V)
-
-`1 + |M|^{1/2} C_M var(ρ_ξ) R₁`, the same number for `V_h` and `V`; from eq:reduced_resolvent
-and eq:l1tol2, see the file docstring.  Upward.
-"""
-function sigma_from_circle(area::Float64, varρ::Float64, R1::Float64)
-    S = add_up(1.0, mul_up(mul_up(mul_up(sqrt_up(area), C_M_UP), varρ), R1))
-    return (; grid = S, V = S)
-end
-
-"""
-    defect_apriori(δ, varρ, varf) -> bound
-
-`‖(L_ξ − P_h) f‖₁ ≤ (3δ/2) var(ρ_ξ) + (δ/2) var(f)` for a density `f`, with `δ` the diameter
-of a cell; see the file docstring.  Upward.
-"""
-defect_apriori(δ::Float64, varρ::Float64, varf::Float64) =
-    add_up(mul_up(mul_up(1.5, δ), varρ), mul_up(mul_up(0.5, δ), varf))
-
-"""
-    coarse_fine_norms(C, δ, varρ; first = 1.0) -> F
+    coarse_fine_norms(C, h, varρ; first = 1.0) -> F
 
 Bounds `F_k ≥ ‖Λ^k|_V‖_{L¹}`, `k = 1, …, length(C) + 1`, for `Λ = σ N_ξ σ L_T σ` with `σ` the
-Ulam projection of any dyadic refinement of the grid of cell diameter `δ`, or the identity
+Ulam projection of any dyadic refinement of the grid of squares of side `h`, or the identity
 (`Λ = L_ξ`), from bounds `C_k ≥ ‖P_h^k|_{V_h}‖₁` for the coarse `P_h = π_h N_ξ π_h L_T π_h`
-(`norms_of_powers_columns`; they bound `‖P_h^k|_V‖₁` as well, `P_h` ending with `π_h`).
-It is the recursion of Galatolo, Monge, Nisoli (2020), Lemma 29 with (36), as implemented by
-`norms_of_powers_recursive_noise` of RigorousInvariantMeasures, whose only input from the
-geometry is a bound on `‖(π_h − 1) N_ξ‖₁` and `‖N_ξ (π_h − 1)‖₁`; Theorem D gives
-`(δ/2) var(ρ_ξ)` and `δ var(ρ_ξ)`, and the larger, `δ var(ρ_ξ)` rounded upward, is passed.
-`first ≥ ‖Λ‖` on `V`; 1 for a Markov operator.
+(`norms_of_powers_columns`; they bound `‖P_h^k|_V‖₁` as well, `P_h` ending with `π_h`).  It is the
+recursion of math/local_ly_2d.tex, Proposition "recursion" (Galatolo, Monge, Nisoli 2020,
+Lemma 29 with (36), with the two constants kept apart), as `norms_of_powers_recursive_noise(a,
+b, C)` of RigorousInvariantMeasures, with `a ≥ ‖(I − π_h) N_ξ‖₁` and `b ≥ ‖N_ξ (I − π_h)‖₁` both
+`(h/2) var(ρ_ξ)`, rounded upward.  `first ≥ ‖Λ‖` on `V`; 1 for a Markov operator.
 """
-coarse_fine_norms(C::AbstractVector{<:Real}, δ::Float64, varρ::Float64; first::Real = 1.0) =
-    RIM.norms_of_powers_recursive_noise(mul_up(δ, varρ), Vector{Float64}(C); first)
+function coarse_fine_norms(C::AbstractVector{<:Real}, h::Float64, varρ::Float64; first::Real = 1.0)
+    c = mul_up(0.5 * h, varρ)                   # h/2 is exact
+    return RIM.norms_of_powers_recursive_noise(c, c, Vector{Float64}(C); first)
+end
 
 """
-    swapped_error(Σ, δ, varρ, ε1, ε2) -> bound
+    swapped_error(Σ, h, varρ, ε1, ε2) -> bound
 
-`‖f_ξ − f̃‖₁` for a computed `f̃ ≥ 0` that is constant on the cells of the grid of `P_h`, with
-`ε1 ≥ ‖P_h f̃ − f̃‖₁`, `ε2 ≥ |Σf̃ − 1|` (`fixed_point_residual`) and `Σ ≥ ‖(I − L_ξ)⁻¹|_V‖₁`
-(`sigma_from_norms` of `coarse_fine_norms`, which bound the powers of `L_ξ` itself).  With
-`u = f̃/Σf̃`, `u − f_ξ ∈ V` and
+`‖f_ξ − f̃‖₁` for a computed `f̃ ≥ 0` that is constant on the cells of the grid of squares of side
+`h` of `P_h`, with `ε1 ≥ ‖P_h f̃ − f̃‖₁`, `ε2 ≥ |Σf̃ − 1|` (`fixed_point_residual`) and
+`Σ ≥ ‖(I − L_ξ)⁻¹|_V‖₁` (`sigma_from_norms` of `coarse_fine_norms`, which bound the powers of
+`L_ξ` itself).  With `u = f̃/Σf̃`, `u − f_ξ ∈ V` and
 
     (I − L_ξ)(u − f_ξ) = (u − P_h u) + (P_h − L_ξ) u;
 
-in the decomposition `L_ξ − P_h = (I − π_h) N_ξ L + π_h N_ξ (I − π_h) L + π_h N_ξ π_h L (I − π_h)` the
-last term vanishes on `u`, which `π_h` fixes, and Theorem D bounds the other two by
-`(δ/2) var(ρ_ξ)` and `δ var(ρ_ξ)` (`‖u‖₁ = 1`).  Hence
+in `L_ξ − P_h = (I − π_h) N_ξ L + π_h N_ξ (I − π_h) L + π_h N_ξ π_h L (I − π_h)` the last term
+vanishes on `u`, which `π_h` fixes, and the other two are at most `(h/2) var(ρ_ξ)` each
+(`‖u‖₁ = 1`; file docstring).  Hence
 
-    ‖u − f_ξ‖₁ ≤ Σ ((3/2) δ var(ρ_ξ) + ε1/(1 − ε2)),   ‖f̃ − u‖₁ ≤ ε2 (1 + ε2)/(1 − ε2),
+    ‖u − f_ξ‖₁ ≤ Σ (h var(ρ_ξ) + ε1/(1 − ε2)),   ‖f̃ − u‖₁ = |Σf̃ − 1| ≤ ε2,
 
-and the bound is their sum, rounded upward; against `Σ · 2δ var(ρ_ξ)` of the direct route it
-spends `(3/2) δ` in place of `2δ`.
+and the bound is their sum, rounded upward; against `Σ · (3h/2) var(ρ_ξ)` of the direct route it
+spends `h` in place of `3h/2`.
 """
-function swapped_error(Σ::Float64, δ::Float64, varρ::Float64, ε1::Float64, ε2::Float64)
+function swapped_error(Σ::Float64, h::Float64, varρ::Float64, ε1::Float64, ε2::Float64)
     ε2 < 1 || throw(ArgumentError("the mass defect ε2 = $ε2 must be below 1"))
     den = -sub_up(ε2, 1.0)                                  # 1 − ε2, downward
-    defect = add_up(mul_up(mul_up(1.5, δ), varρ), div_up(ε1, den))
-    return add_up(mul_up(Σ, defect), div_up(mul_up(ε2, add_up(1.0, ε2)), den))
+    defect = add_up(mul_up(h, varρ), div_up(ε1, den))
+    return add_up(mul_up(Σ, defect), ε2)
 end

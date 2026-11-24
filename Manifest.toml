@@ -2,7 +2,7 @@
 
 julia_version = "1.13.3"
 manifest_format = "2.1"
-project_hash = "cf753d095bc7f5356f9aafa773ae3a629eebb10c"
+project_hash = "ab6d96bc0c932f282062956691ec426eb97229b9"
 
 [[deps.AbstractFFTs]]
 deps = ["LinearAlgebra"]
@@ -714,8 +714,8 @@ version = "1.7.1"
 
 [[deps.RigorousInvariantMeasures]]
 deps = ["Arpack", "BallArithmetic", "CRlibm", "DualNumbers", "FastRounding", "GenericFFT", "IntervalArithmetic", "IntervalOptimisation", "LinearAlgebra", "ProgressMeter", "Random", "SparseArrays", "StaticArrays", "TaylorSeries"]
-git-tree-sha1 = "60c3eaf64765f543375d27feafc406060fbc0fdd"
-repo-rev = "ee634de2b210f7bf371b3cbed1434f80cfd3b388"
+git-tree-sha1 = "2d5ff3d86ce52eca30b971cf127b74dfb47f1237"
+repo-rev = "ceae111216ce94a3ace3e1cb6b4b215260c4846a"
 repo-url = "https://github.com/JuliaDynamics/RigorousInvariantMeasures.jl.git"
 uuid = "6103b61f-200f-420b-b397-2cbeef157920"
 version = "0.3.0"

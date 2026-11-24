@@ -17,10 +17,10 @@ Serialization = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
 SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 
 [sources]
-BallArithmetic = {path = "/home/isaia/Code/BallArithmetic.jl"}
+BallArithmetic = {url = "https://github.com/JuliaBallArithmetic/BallArithmetic.jl.git", rev = "19c6924b3c5e0894029f075203fa27e7bc989310"}
 CertifiedRecords = {url = "https://github.com/orkolorko/CertifiedRecords.jl.git", rev = "d4b5b53fd34636298f0da2c4871ab1b96289ea90"}
-RigorousInvariantMeasures = {path = "/home/isaia/Code/RigorousInvariantMeasures.jl"}
-RigorousPseudospectra = {path = "/home/isaia/Code/RigorousPseudospectra.jl"}
+RigorousInvariantMeasures = {url = "https://github.com/JuliaDynamics/RigorousInvariantMeasures.jl.git", rev = "ee634de2b210f7bf371b3cbed1434f80cfd3b388"}
+RigorousPseudospectra = {url = "https://github.com/JuliaBallArithmetic/RigorousPseudospectra.jl.git", rev = "283c1b2ede5819e4d7e69894858a2ee4c06db14c"}
 
 [compat]
 BallArithmetic = "0.4"

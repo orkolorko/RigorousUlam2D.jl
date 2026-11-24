@@ -2,7 +2,7 @@
 
 julia_version = "1.13.3"
 manifest_format = "2.1"
-project_hash = "00a736451864600cb6bf20a9db7a88b872b27838"
+project_hash = "2f9196c1503b12f22c352e8c6a05a4359f24c4da"
 
 [[deps.AbstractFFTs]]
 deps = ["LinearAlgebra"]
@@ -54,7 +54,9 @@ version = "1.11.0"
 
 [[deps.BallArithmetic]]
 deps = ["Combinatorics", "GenericLinearAlgebra", "GenericSchur", "JLD2", "LinearAlgebra", "MacroTools", "OpenBLASConsistentFPCSR_jll", "RoundingEmulator", "SetRounding"]
-path = "/home/isaia/Code/BallArithmetic.jl"
+git-tree-sha1 = "76540f9bd30b2b2adc7d4e5ba4db277a5f8dd19c"
+repo-rev = "19c6924b3c5e0894029f075203fa27e7bc989310"
+repo-url = "https://github.com/JuliaBallArithmetic/BallArithmetic.jl.git"
 uuid = "77e4f72b-b5a4-4fb0-ac2a-dcc32095a072"
 version = "0.4.0"
 
@@ -712,7 +714,9 @@ version = "1.7.1"
 
 [[deps.RigorousInvariantMeasures]]
 deps = ["Arpack", "BallArithmetic", "CRlibm", "DualNumbers", "FastRounding", "GenericFFT", "IntervalArithmetic", "IntervalOptimisation", "LinearAlgebra", "ProgressMeter", "Random", "SparseArrays", "StaticArrays", "TaylorSeries"]
-path = "/home/isaia/Code/RigorousInvariantMeasures.jl"
+git-tree-sha1 = "60c3eaf64765f543375d27feafc406060fbc0fdd"
+repo-rev = "ee634de2b210f7bf371b3cbed1434f80cfd3b388"
+repo-url = "https://github.com/JuliaDynamics/RigorousInvariantMeasures.jl.git"
 uuid = "6103b61f-200f-420b-b397-2cbeef157920"
 version = "0.3.0"
 
@@ -738,7 +742,9 @@ version = "0.3.0"
 
 [[deps.RigorousPseudospectra]]
 deps = ["BallArithmetic", "LinearAlgebra", "Random", "SparseArrays"]
-path = "/home/isaia/Code/RigorousPseudospectra.jl"
+git-tree-sha1 = "78e7a920e7af93149217d9a6b7a21486aca76a27"
+repo-rev = "283c1b2ede5819e4d7e69894858a2ee4c06db14c"
+repo-url = "https://github.com/JuliaBallArithmetic/RigorousPseudospectra.jl.git"
 uuid = "63762aec-5db2-4bf6-a1b0-d46a1c2dd8e0"
 version = "0.1.0"
 

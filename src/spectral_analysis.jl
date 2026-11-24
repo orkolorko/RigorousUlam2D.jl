@@ -399,22 +399,30 @@ so `C[j] = maxᵢ (‖x_j − u‖₁ + ε_j)`, every operation rounded upward.
 `blockmul!(Y, X)` must set every column of `Y` to the computed product of `P` with the same column
 of `X` (`n × b` matrices), under the model above; it is called on disjoint blocks of `block`
 columns from several threads at once, so it must be thread safe.  Cost: `n m` column products.
+
+With `cols`, only the columns `i ∈ cols` are iterated and `C[j]` is the maximum over them; the
+entrywise maximum of the results for ranges covering `1:n` is the `C` of the whole run, bit for
+bit, so a sweep can be split between machines (`bench/l1_mixing.jl` with `COLS`,
+`bench/l1_mixing_merge.jl`).
 """
 function norms_of_powers_columns(blockmul!, n::Int, m::Int; η1::Real, eta1A::Real = 0.0,
-        normP::Real = 1.0, u::AbstractVector{Float64}, block::Int = 64, verbose::Bool = false)
+        normP::Real = 1.0, u::AbstractVector{Float64}, block::Int = 64, verbose::Bool = false,
+        cols::AbstractUnitRange{<:Integer} = 1:n)
     length(u) == n || throw(DimensionMismatch("u has length $(length(u)), expected $n"))
     m >= 1 && block >= 1 || throw(ArgumentError("m and block must be positive"))
+    1 <= first(cols) <= last(cols) <= n || throw(ArgumentError("cols = $cols is not a nonempty range in 1:$n"))
     η1, eta1A, normP = Float64(η1), Float64(eta1A), Float64(normP)
-    starts = collect(1:block:n)
+    starts = collect(first(cols):block:last(cols))
+    nc = length(cols)
     C = zeros(m)
     Clock = ReentrantLock()
     done = Threads.Atomic{Int}(0)
     t0 = time()
     Threads.@threads :dynamic for s in starts
-        cols = s:min(s + block - 1, n)
-        b = length(cols)
+        cs = s:min(s + block - 1, last(cols))
+        b = length(cs)
         X = zeros(n, b); Y = zeros(n, b)
-        for (c, i) in enumerate(cols)
+        for (c, i) in enumerate(cs)
             X[i, c] = 1.0
         end
         nrm = ones(b)                       # ‖x_j‖₁, upward
@@ -441,8 +449,8 @@ function norms_of_powers_columns(blockmul!, n::Int, m::Int; η1::Real, eta1A::Re
             end
         end
         k = Threads.atomic_add!(done, b) + b
-        verbose && k % max(block, n ÷ 100) < b &&                # about every 1% of the columns
-            (println("  columns $k / $n, $(round(time() - t0, digits = 1)) s"); flush(stdout))
+        verbose && k % max(block, nc ÷ 100) < b &&               # about every 1% of the columns
+            (println("  columns $k / $nc, $(round(time() - t0, digits = 1)) s"); flush(stdout))
     end
     if verbose
         for j in 1:m

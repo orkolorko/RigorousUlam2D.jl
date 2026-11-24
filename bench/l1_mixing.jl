@@ -15,6 +15,11 @@
 #     l1_mixing.<map>_d<depth>_a<p>-<q>.<commit>.<host>.tsv  j, C_j and refined C_j as exact doubles
 #     l1_mixing.<commit>.<host>.tsv                         one row per (map, depth, a): Σ and the bound
 # A configuration already in the second record is not run again.
+#
+# With COLS (a range such as 1:524288) only those columns are iterated, and the record is
+#     l1_mixing.<map>_d<depth>_a<p>-<q>_cols<first>-<last>.<commit>.<host>.tsv   j, max over COLS
+# with the SHA-256 of the block in its header and no summary row; bench/l1_mixing_merge.jl takes
+# the maximum of parts covering all the columns, which is the C of the whole run bit for bit.
 # Every row names, in its column `environment`, the copy of the Manifest of the run written
 # beside the record by `save_environment`, with the commits of the dependencies given by path.
 #
@@ -32,14 +37,17 @@ const DEPTH = parse(Int, get(ENV, "DEPTH", "8"))
 const A = let s = get(ENV, "A", "51//512"); p, q = parse.(Int, split(s, "//")); p // q end
 const M = parse(Int, get(ENV, "M", "150"))
 const BLOCK = parse(Int, get(ENV, "BLOCK", "8"))
+const COLS = let s = get(ENV, "COLS", ""); isempty(s) ? nothing : (r = parse.(Int, split(s, ":")); r[1]:r[2]) end
 
 amp = "a$(numerator(A))-$(denominator(A))"
 summary = record_file(DATADIR, SCRIPT, RigorousUlam2D)
 (MAP, string(DEPTH), string(A)) in recorded_keys(summary, "map", "depth", "a") &&
     (println("$MAP depth $DEPTH a = $A is in $(basename(summary))"); exit())
+part = COLS === nothing ? nothing : record_file(DATADIR, "$SCRIPT.$(MAP)_d$(DEPTH)_$(amp)_cols$(first(COLS))-$(last(COLS))", RigorousUlam2D)
+part !== nothing && isfile(part) && (println("$(basename(part)) exists"); exit())
 powers = record_file(DATADIR, "$SCRIPT.$(MAP)_d$(DEPTH)_$amp", RigorousUlam2D)
-isfile(powers) && error("$powers exists without its summary row; remove it to run again")
-environment = save_environment(summary)
+COLS === nothing && isfile(powers) && error("$powers exists without its summary row; remove it to run again")
+environment = save_environment(part === nothing ? summary : part)
 
 sys = ulam_system(MAP)
 blkfile = block_file(DATADIR, MAP, DEPTH)
@@ -48,37 +56,31 @@ P = noisy_ulam_operator(sys, Serialization.deserialize(blkfile), DEPTH, A)
 densrec = try latest_record(DATADIR, "stationary_density") catch; nothing end
 densrow = densrec === nothing ? nothing :
     findfirst(r -> r["map"] == MAP && r["depth"] == string(DEPTH) && r["a"] == string(A), last(read_record(densrec)))
-u = if densrow === nothing
-    ulam_fixed_point(P.info.Amul, P.n).v
-else
-    Serialization.deserialize(joinpath(DATADIR, last(read_record(densrec))[densrow]["density_file"])).density
-end
+densfile = densrow === nothing ? nothing : last(read_record(densrec))[densrow]["density_file"]
+u = densfile === nothing ? ulam_fixed_point(P.info.Amul, P.n).v :
+    Serialization.deserialize(joinpath(DATADIR, densfile)).density
 length(u) == P.n || error("the density has length $(length(u)), the operator n = $(P.n)")
+cols = COLS === nothing ? (1:P.n) : COLS
 
 header = run_header(RigorousUlam2D, "bench/$SCRIPT.jl"; map = MAP, depth = DEPTH, a = A, M, block = BLOCK,
-    blockfile = basename(blkfile), u = densrow === nothing ? "power iteration" : basename(densrec),
-    η1 = P.info.η1, eta1A = P.info.eta1A, normP = P.normP)
+    cols = "$(first(cols)):$(last(cols))", n = P.n, blockfile = basename(blkfile), blocksha = file_sha256(blkfile),
+    u = densfile === nothing ? "power iteration" : densfile, η1 = P.info.η1, eta1A = P.info.eta1A, normP = P.normP)
 print(header)
-@printf("%s depth %d n = %d, a = %s, δ = %.6g, var(ρ_ξ) = %.6g (%.1f s)\n", MAP, DEPTH, P.n, A, P.δ, P.varρ, time() - t0)
+@printf("%s depth %d n = %d, a = %s, δ = %.6g, var(ρ_ξ) = %.6g, columns %s (%.1f s)\n", MAP, DEPTH, P.n, A, P.δ, P.varρ, cols, time() - t0)
 flush(stdout)
 
 tc = @elapsed C = norms_of_powers_columns(P.info.Bmul!, P.n, M; η1 = P.info.η1, eta1A = P.info.eta1A,
-    normP = P.normP, u, block = BLOCK, verbose = true)
-Cr = refine_norms_of_powers(C, M)
-@printf("columns: %d × %d products in %.1f s\n", P.n, M, tc)
-open_record(powers, header * "# environment = $environment\n", ["j", "C", "C_refined", "bits"])
-for j in 1:M
-    append_record(powers, [j, write_endpoint(C[j])[1], write_endpoint(Cr[j])[1], 53])
+    normP = P.normP, u, block = BLOCK, verbose = true, cols)
+@printf("columns: %d × %d products in %.1f s\n", length(cols), M, tc)
+if part !== nothing
+    open_record(part, header * "# environment = $environment\n# seconds = $(round(tc; digits = 1))\n", ["j", "C", "bits"])
+    for j in 1:M
+        append_record(part, [j, write_endpoint(C[j])[1], 53])
+    end
+    println("recorded in $(basename(part))")
+else
+    s = record_column_sweep(DATADIR, SCRIPT, MAP, DEPTH, A, C, header, environment, tc; P.δ, P.varρ, P.n)
+    s === nothing ? println("no C_j below 1 up to j = $M") :
+        @printf("Σ_grid ≤ %.6g at k = %d (α = %.6g), Σ_V ≤ %.6g\n", s.grid, s.k, s.α, s.V)
+    println("recorded in $(basename(powers)) and $(basename(summary))")
 end
-
-s = any(<(1), Cr) ? sigma_from_norms(Cr) : nothing
-defect = defect_apriori(P.δ, P.varρ, P.varρ)
-err = s === nothing ? Inf : mul_up(s.V, defect)
-s === nothing ? println("no C_j below 1 up to j = $M") :
-    @printf("Σ_grid ≤ %.6g at k = %d (α = %.6g), Σ_V ≤ %.6g; ‖f_ξ − f_h‖₁ ≤ %.6g\n", s.grid, s.k, s.α, s.V, err)
-open_record(summary, run_header(RigorousUlam2D, "bench/$SCRIPT.jl"),
-    ["map", "depth", "a", "n", "M", "powers_file", "Sigma_grid", "Sigma_V", "k", "defect", "err_apriori", "seconds", "environment"])
-append_record(summary, [MAP, DEPTH, A, P.n, M, basename(powers),
-    s === nothing ? "Inf" : write_endpoint(s.grid)[1], s === nothing ? "Inf" : write_endpoint(s.V)[1],
-    s === nothing ? 0 : s.k, write_endpoint(defect)[1], err === Inf ? "Inf" : write_endpoint(err)[1], round(tc; digits = 1), environment])
-println("recorded in $(basename(powers)) and $(basename(summary))")

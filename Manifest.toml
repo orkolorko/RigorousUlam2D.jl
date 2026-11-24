@@ -2,7 +2,7 @@
 
 julia_version = "1.13.3"
 manifest_format = "2.1"
-project_hash = "943ddcc4d91dcb0641f604c73faa28554de5ffe0"
+project_hash = "cf753d095bc7f5356f9aafa773ae3a629eebb10c"
 
 [[deps.AbstractFFTs]]
 deps = ["LinearAlgebra"]
@@ -749,7 +749,7 @@ uuid = "63762aec-5db2-4bf6-a1b0-d46a1c2dd8e0"
 version = "0.1.0"
 
 [[deps.RigorousUlam2D]]
-deps = ["BallArithmetic", "CertifiedRecords", "DataStructures", "ForwardDiff", "IntervalArithmetic", "IntervalBoxes", "LinearAlgebra", "RigorousInvariantMeasures", "RigorousPseudospectra", "Serialization", "SparseArrays"]
+deps = ["BallArithmetic", "CertifiedRecords", "DataStructures", "ForwardDiff", "IntervalArithmetic", "IntervalBoxes", "LinearAlgebra", "RigorousInvariantMeasures", "RigorousPseudospectra", "SHA", "Serialization", "SparseArrays"]
 path = "."
 uuid = "2cbaba54-1f7c-42c5-a2df-29a8df60aaff"
 version = "0.0.1-DEV"

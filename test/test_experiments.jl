@@ -71,7 +71,7 @@ using Serialization: deserialize
         end
         @test all(r -> isfile(joinpath(data, r["environment"])), dens)
         _, tr = read_record(latest_record(data, "l1_transfer"))
-        @test length(tr) == 1 && tr[1]["fine_depth"] == "7" && isfinite(parse(Float64, tr[1]["err"]))
+        @test length(tr) == 1 && tr[1]["fine_depth"] == "7" && isfinite(parse(Float64, tr[1]["err"])) && parse(Float64, tr[1]["err_swapped"]) < parse(Float64, tr[1]["err"])
         # a second run of a recorded configuration does nothing
         drv("l1_transfer.jl", (lor..., "DEPTH" => "6", "A" => "3//8", "FINE" => "7"))
         @test length(last(read_record(latest_record(data, "l1_transfer")))) == 1

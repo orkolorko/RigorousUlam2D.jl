@@ -8,7 +8,8 @@
 # stationary_density record, whose `defect` is 2δ' var(ρ_ξ) ≥ ‖(L_ξ − P_{h'}) f_ξ‖₁ and whose ε₁, ε₂
 # are the residuals of its computed density f̃:
 #     ‖f_ξ − f_{h'}‖₁ ≤ Σ · 2δ' var(ρ_ξ),   ‖f̃ − f_{h'}‖₁ ≤ fixed_point_distance(Σ, ε₁, ε₂),
-# and their sum bounds ‖f_ξ − f̃‖₁.  Every operation rounds upward; the inputs are read back
+# and their sum bounds ‖f_ξ − f̃‖₁.  Also `swapped_error`: the same Σ, which bounds the resolvent of
+# L_ξ, against the defect of L_ξ on f̃, constant on the cells, (3/2)δ' var(ρ_ξ) + ε₁/(1 − ε₂).  Every operation rounds upward; the inputs are read back
 # exactly from the latest records of this host.
 #
 # Env: MAP, DEPTH (8), A (rational such as 77//256), FINE (comma-separated depths, "10,12").
@@ -49,22 +50,24 @@ s === nothing ? println("no F_k below 1 up to k = $(length(F))") :
     @printf("F_k < 1 first at k = %d; Σ ≤ %.6g at k = %d (α = %.6g)\n", findfirst(<(1), F), s.grid, s.k, s.α)
 
 open_record(record, run_header(RigorousUlam2D, "bench/$SCRIPT.jl"),
-    ["map", "coarse_depth", "a", "fine_depth", "Sigma", "k", "defect", "err_apriori", "dist", "err", "powers_file", "densities_file", "environment"])
+    ["map", "coarse_depth", "a", "fine_depth", "Sigma", "k", "defect", "err_apriori", "dist", "err", "err_swapped", "powers_file", "densities_file", "environment"])
 for d in FINE
     (MAP, string(DEPTH), string(A), string(d)) in done && continue
     i = findfirst(r -> r["map"] == MAP && r["depth"] == string(d) && r["a"] == string(A), dens)
     i === nothing && (println("depth $d: no row in $(basename(densrec))"); continue)
     defect, ε1, ε2 = rd(dens[i]["defect"]), rd(dens[i]["eps1"]), rd(dens[i]["eps2"])
     if s === nothing
-        append_record(record, [MAP, DEPTH, A, d, "Inf", 0, write_endpoint(defect)[1], "Inf", "Inf", "Inf", basename(powers), basename(densrec), environment])
+        append_record(record, [MAP, DEPTH, A, d, "Inf", 0, write_endpoint(defect)[1], "Inf", "Inf", "Inf", "Inf", basename(powers), basename(densrec), environment])
         continue
     end
     err_apriori = mul_up(s.grid, defect)
     dist = fixed_point_distance(s.grid, ε1, ε2)
     err = add_up(err_apriori, dist)
-    @printf("depth %2d: 2δ' var(ρ_ξ) = %.6g, ‖f_ξ − f_h'‖₁ ≤ %.6g, ‖f̃ − f_h'‖₁ ≤ %.3e, ‖f_ξ − f̃‖₁ ≤ %.6g\n",
-        d, defect, err_apriori, dist, err)
+    g′ = grid_constants(ulam_system(MAP), d, A)
+    err_swapped = swapped_error(s.grid, g′.δ, g′.varρ, ε1, ε2)
+    @printf("depth %2d: 2δ' var(ρ_ξ) = %.6g, ‖f_ξ − f_h'‖₁ ≤ %.6g, ‖f̃ − f_h'‖₁ ≤ %.3e, ‖f_ξ − f̃‖₁ ≤ %.6g, swapped ≤ %.6g\n",
+        d, defect, err_apriori, dist, err, err_swapped)
     append_record(record, [MAP, DEPTH, A, d, write_endpoint(s.grid)[1], s.k, write_endpoint(defect)[1],
-        write_endpoint(err_apriori)[1], write_endpoint(dist)[1], write_endpoint(err)[1], basename(powers), basename(densrec), environment])
+        write_endpoint(err_apriori)[1], write_endpoint(dist)[1], write_endpoint(err)[1], write_endpoint(err_swapped)[1], basename(powers), basename(densrec), environment])
 end
 println("recorded in $(basename(record))")

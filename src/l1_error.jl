@@ -63,7 +63,7 @@ enclosure `L_lo ≤ L ≤ L_lo + U`.  The variation of the computed density on t
 """
 
 export grid_variation, ulam_fixed_point, fixed_point_residual, fixed_point_distance,
-    sigma_from_norms, sigma_from_gap, sigma_from_circle, defect_apriori, coarse_fine_norms
+    sigma_from_norms, sigma_from_gap, sigma_from_circle, defect_apriori, coarse_fine_norms, swapped_error
 
 "`1/(2√2) = √2/4` rounded upward: the constant of lem:sobolev2d."
 const C_M_UP = sqrt_up(2.0) / 4
@@ -227,3 +227,29 @@ geometry is a bound on `‖(π_h − 1) N_ξ‖₁` and `‖N_ξ (π_h − 1)‖
 """
 coarse_fine_norms(C::AbstractVector{<:Real}, δ::Float64, varρ::Float64; first::Real = 1.0) =
     RIM.norms_of_powers_recursive_noise(mul_up(δ, varρ), Vector{Float64}(C); first)
+
+"""
+    swapped_error(Σ, δ, varρ, ε1, ε2) -> bound
+
+`‖f_ξ − f̃‖₁` for a computed `f̃ ≥ 0` that is constant on the cells of the grid of `P_h`, with
+`ε1 ≥ ‖P_h f̃ − f̃‖₁`, `ε2 ≥ |Σf̃ − 1|` (`fixed_point_residual`) and `Σ ≥ ‖(I − L_ξ)⁻¹|_V‖₁`
+(`sigma_from_norms` of `coarse_fine_norms`, which bound the powers of `L_ξ` itself).  With
+`u = f̃/Σf̃`, `u − f_ξ ∈ V` and
+
+    (I − L_ξ)(u − f_ξ) = (u − P_h u) + (P_h − L_ξ) u;
+
+in the decomposition `L_ξ − P_h = (I − π_h) N_ξ L + π_h N_ξ (I − π_h) L + π_h N_ξ π_h L (I − π_h)` the
+last term vanishes on `u`, which `π_h` fixes, and Theorem D bounds the other two by
+`(δ/2) var(ρ_ξ)` and `δ var(ρ_ξ)` (`‖u‖₁ = 1`).  Hence
+
+    ‖u − f_ξ‖₁ ≤ Σ ((3/2) δ var(ρ_ξ) + ε1/(1 − ε2)),   ‖f̃ − u‖₁ ≤ ε2 (1 + ε2)/(1 − ε2),
+
+and the bound is their sum, rounded upward; against `Σ · 2δ var(ρ_ξ)` of the direct route it
+spends `(3/2) δ` in place of `2δ`.
+"""
+function swapped_error(Σ::Float64, δ::Float64, varρ::Float64, ε1::Float64, ε2::Float64)
+    ε2 < 1 || throw(ArgumentError("the mass defect ε2 = $ε2 must be below 1"))
+    den = -sub_up(ε2, 1.0)                                  # 1 − ε2, downward
+    defect = add_up(mul_up(mul_up(1.5, δ), varρ), div_up(ε1, den))
+    return add_up(mul_up(Σ, defect), div_up(mul_up(ε2, add_up(1.0, ε2)), den))
+end

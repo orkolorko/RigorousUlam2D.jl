@@ -136,4 +136,20 @@ const RIMl = RigorousInvariantMeasures
             @test low <= F[k] + 1e-9
         end
     end
+
+    @testset "swapped_error against BigFloat" begin
+        Random.seed!(11)
+        for _ in 1:200
+            Σ, δ, varρ = 1 + 50rand(), rand() / 100, 1 + 20rand()
+            ε1, ε2 = rand() * 1e-10, rand() * 1e-10
+            b = swapped_error(Σ, δ, varρ, ε1, ε2)
+            exact = setprecision(BigFloat, 256) do
+                B = big
+                B(Σ) * (B(3) / 2 * B(δ) * B(varρ) + B(ε1) / (1 - B(ε2))) + B(ε2) * (1 + B(ε2)) / (1 - B(ε2))
+            end
+            @test b >= exact && b <= exact * (1 + 1e-14)
+            @test b < mul_up(Σ, 2δ * varρ)       # below the direct route when the residuals are small
+        end
+        @test_throws ArgumentError swapped_error(1.0, 0.1, 1.0, 0.0, 1.0)
+    end
 end

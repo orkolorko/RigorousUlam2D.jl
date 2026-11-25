@@ -26,6 +26,7 @@
 
 ENV["GKSwstype"] = "100"
 using RigorousUlam2D, CertifiedRecords, CairoMakie, Printf
+using IntervalArithmetic: inf, sup
 import Serialization
 
 const SCRIPT = splitext(basename(@__FILE__))[1]

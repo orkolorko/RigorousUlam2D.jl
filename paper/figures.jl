@@ -40,8 +40,20 @@ commit = try readchomp(`git -C $(pkgdir(RigorousUlam2D)) rev-parse --short HEAD`
 host = gethostname()
 out(name, ext) = joinpath(IMAGES, "$SCRIPT.$name.$commit.$host.$ext")
 up3(x) = fmt_upper(Upper(x); digits = 3)
-tex(s) = (m = match(r"^(-?[0-9.]+)e([+-][0-9]+)$", s); m === nothing ? s :
-          (e = parse(Int, m.captures[2]); e == 0 ? m.captures[1] : "$(m.captures[1])\\times10^{$e}"))
+# A decimal string `d.ddde±x` written for LaTeX: plainly when -2 ≤ x ≤ 3 (the decimal point is
+# moved, so the value, and with it the upward rounding, is unchanged), else as d.dd × 10^x.
+function tex(s)
+    m = match(r"^(-?)([0-9])(?:\.([0-9]*))?e([+-][0-9]+)$", s)
+    m === nothing && return s
+    sg, d1, rest, e = m.captures[1], m.captures[2], something(m.captures[3], ""), parse(Int, m.captures[4])
+    mant = isempty(rest) ? d1 : "$d1.$rest"
+    -2 <= e <= 3 || return "$sg$mant\\times10^{$e}"
+    digs = d1 * rest
+    p = 1 + e                                         # digits before the decimal point
+    str = p <= 0 ? "0." * "0"^(-p) * digs :
+          p >= length(digs) ? digs * "0"^(p - length(digs)) : digs[1:p] * "." * digs[p+1:end]
+    return sg * str
+end
 rd(s) = s == "Inf" ? Inf : Float64(read_endpoint(s, 53), RoundUp)
 
 densrec = latest_record(DATA, "stationary_density")

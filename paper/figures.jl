@@ -42,12 +42,14 @@ out(name, ext) = joinpath(IMAGES, "$SCRIPT.$name.$commit.$host.$ext")
 up3(x) = fmt_upper(Upper(x); digits = 3)
 # A decimal string `d.ddde±x` written for LaTeX: plainly when -2 ≤ x ≤ 3 (the decimal point is
 # moved, so the value, and with it the upward rounding, is unchanged), else as d.dd × 10^x.
-function tex(s)
+# `unicode = true` gives the same for plain text (figure titles): d.dd×10⁻ˣ.
+const _SUP = Dict(zip("-0123456789", "⁻⁰¹²³⁴⁵⁶⁷⁸⁹"))
+function tex(s; unicode::Bool = false)
     m = match(r"^(-?)([0-9])(?:\.([0-9]*))?e([+-][0-9]+)$", s)
     m === nothing && return s
     sg, d1, rest, e = m.captures[1], m.captures[2], something(m.captures[3], ""), parse(Int, m.captures[4])
     mant = isempty(rest) ? d1 : "$d1.$rest"
-    -2 <= e <= 3 || return "$sg$mant\\times10^{$e}"
+    -2 <= e <= 3 || return unicode ? "$sg$mant×10" * map(c -> _SUP[c], string(e)) : "$sg$mant\\times10^{$e}"
     digs = d1 * rest
     p = 1 + e                                         # digits before the decimal point
     str = p <= 0 ? "0." * "0"^(-p) * digs :
@@ -86,7 +88,7 @@ for r in rows
     ys = range(inf(sys.domain[2]), sup(sys.domain[2]); length = 2^SHOW)
     fig = Figure(size = (520, 460))
     ax = Axis(fig[1, 1]; aspect = DataAspect(), xlabel = "x", ylabel = "y",
-              title = "$(name(r.map)), a = $(replace(r.a, "//" => "/")), depth $DEPTH: ‖f_ξ − f̃‖₁ ≤ $(up3(r.errs))")
+              title = "$(name(r.map)), a = $(replace(r.a, "//" => "/")), depth $DEPTH: ‖f_ξ − f̃‖₁ ≤ $(tex(up3(r.errs); unicode = true))")
     hm = heatmap!(ax, xs, ys, permutedims(B); colormap = :viridis)
     Colorbar(fig[1, 2], hm)
     save(out("density_$(r.map)_a$(replace(r.a, "//" => "-"))_d$DEPTH", "pdf"), fig)

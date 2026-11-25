@@ -79,7 +79,7 @@ if part !== nothing
     end
     println("recorded in $(basename(part))")
 else
-    s = record_column_sweep(DATADIR, SCRIPT, MAP, DEPTH, A, C, header, environment, tc; P.h, P.var12ρ, P.n)
+    s = record_column_sweep(powers, summary, MAP, DEPTH, A, C, header, environment, tc; P.h, P.var12ρ, P.n)
     s === nothing ? println("no C_j below 1 up to j = $M") :
         @printf("Σ_grid ≤ %.6g at k = %d (α = %.6g), Σ_V ≤ %.6g\n", s.grid, s.k, s.α, s.V)
     println("recorded in $(basename(powers)) and $(basename(summary))")

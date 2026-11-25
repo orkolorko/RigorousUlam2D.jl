@@ -8,7 +8,7 @@ the commit (for the records of `CertifiedRecords`) and the host.
 export ulam_system, block_file, record_file, grid_constants, noisy_ulam_operator, file_sha256,
     record_column_sweep
 
-using CertifiedRecords: run_header, open_record, append_record, write_endpoint
+using CertifiedRecords: open_record, append_record, write_endpoint
 import SHA
 
 """
@@ -87,21 +87,20 @@ parts of a split run can be checked to have read the same input.
 file_sha256(path::AbstractString) = bytes2hex(open(SHA.sha256, path))
 
 """
-    record_column_sweep(datadir, script, map, depth, a, C, header, environment, seconds; h, var12ρ, n)
+    record_column_sweep(powers, summary, map, depth, a, C, header, environment, seconds; h, var12ρ, n)
 
 What `bench/l1_mixing.jl` and `bench/l1_mixing_merge.jl` record of a whole column sweep: the
-bounds `C[j] ≥ ‖P_h^j|_{V_h}‖₁`, refined by submultiplicativity, in their own record
-`<script>.<map>_d<depth>_a<p>-<q>.<commit>.<host>.tsv` (columns `j`, `C`, `C_refined`, `bits`,
-exact doubles), and one row of the summary `<script>.<commit>.<host>.tsv`: `sigma_from_norms` of
-the refined bounds, the a priori defect `(3h/2) var₁₂(ρ_ξ)` (`defect_apriori`) and `Σ_V` times it.  Returns the
+bounds `C[j] ≥ ‖P_h^j|_{V_h}‖₁`, refined by submultiplicativity, in the record `powers`
+(columns `j`, `C`, `C_refined`, `bits`, exact doubles), and one row of the record `summary`:
+`sigma_from_norms` of the refined bounds, the a priori defect `(3h/2) var₁₂(ρ_ξ)`
+(`defect_apriori`) and `Σ_V` times it.  The two paths are the driver's, named by `record_file`
+when the run starts, and `header` is the `run_header` of that start: a commit read at the end of
+a long run would name whatever the checkout had moved to meanwhile.  Returns the
 `sigma_from_norms` result, or `nothing` when no bound is below 1.
 """
-function record_column_sweep(datadir, script, map, depth, a::Rational, C::Vector{Float64}, header,
-                             environment, seconds; h, var12ρ, n)
+function record_column_sweep(powers::AbstractString, summary::AbstractString, map, depth, a::Rational,
+                             C::Vector{Float64}, header, environment, seconds; h, var12ρ, n)
     M = length(C)
-    amp = "a$(numerator(a))-$(denominator(a))"
-    summary = record_file(datadir, script, RigorousUlam2D)
-    powers = record_file(datadir, "$script.$(map)_d$(depth)_$amp", RigorousUlam2D)
     Cr = refine_norms_of_powers(C, M)
     open_record(powers, header * "# environment = $environment\n", ["j", "C", "C_refined", "bits"])
     for j in 1:M
@@ -110,7 +109,7 @@ function record_column_sweep(datadir, script, map, depth, a::Rational, C::Vector
     s = any(<(1), Cr) ? sigma_from_norms(Cr) : nothing
     defect = defect_apriori(h, var12ρ)
     err = s === nothing ? Inf : mul_up(s.V, defect)
-    open_record(summary, run_header(RigorousUlam2D, "bench/$script.jl"),
+    open_record(summary, header,
         ["map", "depth", "a", "n", "M", "powers_file", "Sigma_grid", "Sigma_V", "k", "defect", "err_apriori",
          "seconds", "environment"])
     append_record(summary, [map, depth, a, n, M, basename(powers),

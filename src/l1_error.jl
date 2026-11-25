@@ -135,7 +135,7 @@ function sigma_from_norms(C::AbstractVector{<:Real})
     best = (; grid = Inf, V = Inf, k = 0, α = NaN)
     partial = 1.0                          # C_0
     for k in eachindex(C)
-        α = Float64(C[k])
+        α = Float64(C[k], RoundUp)            # a bound given at higher precision stays a bound
         if α < 1
             S = div_up(partial, -sub_up(α, 1.0))
             S < best.grid && (best = (; grid = S, V = add_up(1.0, S), k, α))
@@ -168,7 +168,7 @@ b, C)` of RigorousInvariantMeasures, with `a ≥ ‖(I − π_h) N_ξ‖₁` and
 """
 function coarse_fine_norms(C::AbstractVector{<:Real}, h::Float64, varρ::Float64; first::Real = 1.0)
     c = mul_up(0.5 * h, varρ)                   # h/2 is exact
-    return RIM.norms_of_powers_recursive_noise(c, c, Vector{Float64}(C); first)
+    return RIM.norms_of_powers_recursive_noise(c, c, [Float64(x, RoundUp) for x in C]; first)
 end
 
 """

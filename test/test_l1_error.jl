@@ -129,4 +129,44 @@ const RIMl = RigorousInvariantMeasures
         end
         @test_throws ArgumentError swapped_error(1.0, 0.1, 1.0, 0.0, 1.0)
     end
+
+    @testset "rounding: sigma_from_norms, coarse_fine_norms, grid_variation against BigFloat" begin
+        Random.seed!(17)
+        setprecision(BigFloat, 256) do
+            for _ in 1:50
+                M = 40
+                C = sort(rand(M) .* 1.2; rev = true)          # bounds, some below 1
+                any(<(1), C) || continue
+                g = sigma_from_norms(C)
+                exact = sum(min(1, big(C[i])) for i in 1:g.k-1; init = big(1)) / (1 - big(C[g.k]))
+                @test g.grid >= exact && g.V >= 1 + exact
+                # a bound given in BigFloat is rounded up, not to nearest
+                Cb = big.(C) .+ big(2)^-80
+                @test sigma_from_norms(Cb).grid >= sum(min(1, Cb[i]) for i in 1:sigma_from_norms(Cb).k-1; init = big(1)) /
+                                                     (1 - Cb[sigma_from_norms(Cb).k])
+                # the recursion of coarse_fine_norms, in BigFloat with the same constant
+                h, varρ = 2.0^-9, 2 / (51 / 512)
+                F = coarse_fine_norms(C, h, varρ)
+                c = big(h) / 2 * big(varρ)
+                Cx(k) = k == 0 ? big(1) : big(C[k])
+                Fx = Vector{BigFloat}(undef, M + 1); Fx[1] = 1
+                F0(k) = k == 0 ? big(1) : Fx[k]
+                for n in 1:M
+                    t = c * F0(n) + sum(Cx(i) * (c * F0(n - 1 - i) + c * F0(n - i)) for i in 0:n-1)
+                    Fx[n+1] = min(Cx(n) * Fx[1] + t, Fx[n] * Fx[1])
+                end
+                for k in 2:M+1                                 # submultiplicative extension, exactly
+                    Fx[k] = min(Fx[k], minimum(Fx[i] * Fx[k-i] for i in 1:k-1))
+                end
+                @test all(F .>= Fx)
+            end
+            # grid_variation: the edge sum |m_i − m_j|/h, upward
+            k = 8; h = 2.0 / k
+            m = rand(k * k) ./ 64
+            Mx = reshape(big.(m), k, k)
+            ex = sum(abs(Mx[iy, ix] - Mx[mod1(iy + 1, k), ix]) + abs(Mx[iy, ix] - Mx[iy, mod1(ix + 1, k)])
+                     for ix in 1:k, iy in 1:k) / big(h)
+            @test grid_variation(m, k, h) >= ex
+        end
+    end
 end

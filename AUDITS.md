@@ -56,3 +56,35 @@ Failed or not auditable:
 Not audited: `UlamTree`, `refine!`, `_children!`, `_targets!`, `_descend!` (the candidate
 lists), the reflecting boundary condition, the code of `UlamProjectedUniformKernel`, and the
 coarse-fine transfer, which is not yet committed.
+
+## 2026-11-25, at the commit that adds this entry: the rounding of every bound routine
+
+By reading each routine and by tests against 256-bit evaluations (test/test_l1_error.jl,
+"rounding: …", "swapped_error against BigFloat", "the constants against BigFloat"), on nighthawk.
+RigorousInvariantMeasures at ceae111, CertifiedRecords at 26bd9a4.
+
+Passed, every operation in the direction that keeps a bound:
+
+- `grid_constants` (`src/experiments.jl`): `h` exact (a dyadic side over `2^d`); `var(ρ_ξ) = 2q/p`
+  by `div_up` with `2q` exact.  `noisy_ulam_operator`: `normP` by `_max_colsum_up` of
+  `add_up.(L_lo, U)`.
+- `defect_apriori` `(3h/2) var(ρ_ξ)`, `mul_up`; `coarse_fine_norms`: `(h/2) var(ρ_ξ)` with `h/2`
+  exact and `mul_up`, inputs converted to doubles upward, the recursion of RigorousInvariantMeasures
+  `norms_of_powers_recursive_noise(a, b, C)` in `⊕₊`, `⊗₊`, and its extension
+  `refine_norms_of_powers` in `⊗₊`; checked against the recursion in BigFloat.
+- `sigma_from_norms`: the partial sums upward, `1 − C_k` downward as `−sub_up(C_k, 1)`, the
+  quotient upward, a bound given above double precision converted upward (this was a
+  conversion to nearest before this commit); checked against BigFloat.
+- `fixed_point_residual` (`|·|` by `_absdiff_up`, sums `add_up`, `Σf̃` both ways),
+  `fixed_point_distance` and `swapped_error` (`1 − ε₂` downward, quotients and sums upward, the
+  mass term `ε₂`); checked against BigFloat.
+- `grid_variation`: edge differences and their sum upward, divided by `h` upward; checked against
+  BigFloat.
+- `norms_of_powers_columns`: as in the entry above.
+- The records: bounds written by `write_endpoint` (the shortest decimal of the double, exact) and
+  read back by `read_endpoint` at 53 bits, converted upward in `l1_transfer` and
+  `l1_mixing_merge`.
+
+Not covered by this entry: `noisy_operator`'s `η` and `epsA` (the ℓ² model, used by the spectral
+routines and not by the L¹ chain), and the code of RigorousInvariantMeasures and BallArithmetic
+beyond the two routines named.

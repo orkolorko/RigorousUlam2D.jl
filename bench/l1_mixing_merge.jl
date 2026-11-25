@@ -36,7 +36,7 @@ parts = map(PARTS) do f
     r = parse.(Int, split(param(params, "cols"), ":"))
     (; file = f, cols = r[1]:r[2], n = parse(Int, param(params, "n")), M = parse(Int, param(params, "M")),
        sha = param(params, "blocksha"), u = param(params, "u"), seconds = parse(Float64, param(params, "seconds")),
-       C = [Float64(read_endpoint(x["C"], x["bits"])) for x in sort(rows; by = x -> parse(Int, x["j"]))])
+       C = [Float64(read_endpoint(x["C"], x["bits"]), RoundUp) for x in sort(rows; by = x -> parse(Int, x["j"]))])
 end
 n, M = parts[1].n, parts[1].M
 all(p -> p.n == n && p.M == M && length(p.C) == M, parts) || error("the parts differ in n or M")

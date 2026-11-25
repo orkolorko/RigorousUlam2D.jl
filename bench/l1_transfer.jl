@@ -31,7 +31,7 @@ const DEPTH = parse(Int, get(ENV, "DEPTH", "8"))
 const A = let s = get(ENV, "A", "77//256"); p, q = parse.(Int, split(s, "//")); p // q end
 const FINE = parse.(Int, split(get(ENV, "FINE", "10,12"), ","))
 
-rd(s) = Float64(read_endpoint(s, 53))                  # exact: written by write_endpoint
+rd(s) = Float64(read_endpoint(s, 53), RoundUp)        # exact for a double written by write_endpoint; upward otherwise
 record = record_file(DATADIR, SCRIPT, RigorousUlam2D)
 done = recorded_keys(record, "map", "coarse_depth", "a", "fine_depth")
 environment = save_environment(record)

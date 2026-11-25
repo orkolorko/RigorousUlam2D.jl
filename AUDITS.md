@@ -57,7 +57,7 @@ Not audited: `UlamTree`, `refine!`, `_children!`, `_targets!`, `_descend!` (the 
 lists), the reflecting boundary condition, the code of `UlamProjectedUniformKernel`, and the
 coarse-fine transfer, which is not yet committed.
 
-## 2026-11-25, at the commit that adds this entry: the rounding of every bound routine
+## 2026-11-25, at 5876bb9: the rounding of every bound routine
 
 By reading each routine and by tests against 256-bit evaluations (test/test_l1_error.jl,
 "rounding: …", "swapped_error against BigFloat", "the constants against BigFloat"), on nighthawk.

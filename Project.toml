@@ -19,7 +19,7 @@ SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 
 [sources]
 BallArithmetic = {url = "https://github.com/JuliaBallArithmetic/BallArithmetic.jl.git", rev = "19c6924b3c5e0894029f075203fa27e7bc989310"}
-CertifiedRecords = {url = "https://github.com/orkolorko/CertifiedRecords.jl.git", rev = "58126ce42d6f3a361aae7f31fe08d883d87de985"}
+CertifiedRecords = {url = "https://github.com/orkolorko/CertifiedRecords.jl.git", rev = "57174e337f2fea8e848270a6f720245c13a389d3"}
 RigorousInvariantMeasures = {url = "https://github.com/JuliaDynamics/RigorousInvariantMeasures.jl.git", rev = "ceae111216ce94a3ace3e1cb6b4b215260c4846a"}
 RigorousPseudospectra = {url = "https://github.com/JuliaBallArithmetic/RigorousPseudospectra.jl.git", rev = "283c1b2ede5819e4d7e69894858a2ee4c06db14c"}
 

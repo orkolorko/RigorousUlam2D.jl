@@ -74,7 +74,7 @@ function build_matvec_operator(F, domain, noise, label;
         safety_margin = 1.1)
     ξ = minimum(diam(noise[i]) for i in 1:length(noise))
     σ = ξ / 2
-    var_ρ = noise_variation(noise)
+    var_ρ = noise_var12(noise)
 
     println("\n" * "="^70)
     @printf("%s  —  ξ = %.5f (σ = %.5f), var(ρ) = %.2f, depth = %d\n",

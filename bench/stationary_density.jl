@@ -3,8 +3,9 @@
 # host), with its a posteriori quantities: the density f̃ is the power iteration `ulam_fixed_point`
 # on the masses; ε₁ ≥ ‖P_h f̃ − f̃‖₁ and ε₂ ≥ |Σ f̃ − 1| (`fixed_point_residual`, with the ℓ¹ rounding
 # model η₁ of `noisy_operator`, which covers the rounding of the products and the enclosure of L);
-# var(f̃), the variation on the torus of the piecewise-constant density (`grid_variation`); and the
-# a priori defect (3h/2) var(ρ_ξ) ≥ ‖(L_ξ − P_h) f_ξ‖₁ of src/l1_error.jl.
+# var₁(f̃), var₂(f̃), the coordinate variations on the torus of the piecewise-constant density
+# (`coordinate_variations`); and the
+# a priori defect (3h/2) var₁₂(ρ_ξ) ≥ ‖(L_ξ − P_h) f_ξ‖₁ of src/l1_error.jl.
 #
 # Env: MAP, DEPTH, A (rational such as 51//512), TOL (1e-14), MAXITER (20000).  Output, in
 # ~/ResearchData/RigorousUlam2D_Data/data:
@@ -41,19 +42,19 @@ P = noisy_ulam_operator(ulam_system(MAP), Serialization.deserialize(blkfile), DE
 header = run_header(RigorousUlam2D, "bench/$SCRIPT.jl")
 environment = save_environment(record)
 print(run_header(RigorousUlam2D, "bench/$SCRIPT.jl"; map = MAP, depth = DEPTH, a = A, tol = TOL, blockfile = basename(blkfile)))
-@printf("%s depth %d n = %d, a = %s, h = %.6g, var(ρ_ξ) = %.6g; η₁ = %.3e, η₁ᴬ = %.3e (%.1f s)\n",
-    MAP, DEPTH, P.n, A, P.h, P.varρ, P.info.η1, P.info.eta1A, time() - t0)
+@printf("%s depth %d n = %d, a = %s, h = %.6g, var₁₂(ρ_ξ) = %.6g; η₁ = %.3e, η₁ᴬ = %.3e (%.1f s)\n",
+    MAP, DEPTH, P.n, A, P.h, P.var12ρ, P.info.η1, P.info.eta1A, time() - t0)
 
 tp = @elapsed fp = ulam_fixed_point(P.info.Amul, P.n; tol = TOL, maxiter = MAXITER)
 res = fixed_point_residual(P.info.Amul, fp.v, P.info.η1, P.info.eta1A)
-varf = grid_variation(fp.v, P.k, P.h)
-defect = defect_apriori(P.h, P.varρ)
+cv = coordinate_variations(fp.v, P.k, P.h)
+defect = defect_apriori(P.h, P.var12ρ)
 @printf("power iteration: %d iterations, last ℓ¹ change %.3e, converged %s (%.1f s)\n", fp.iterations, fp.diff, fp.converged, tp)
-@printf("ε₁ ≤ %.3e, ε₂ ≤ %.3e, var(f̃) ≤ %.6g, (3h/2) var(ρ_ξ) = %.6g\n", res.ε1, res.ε2, varf, defect)
+@printf("ε₁ ≤ %.3e, ε₂ ≤ %.3e, var₁(f̃) ≤ %.6g, var₂(f̃) ≤ %.6g, (3h/2) var₁₂(ρ_ξ) = %.6g\n", res.ε1, res.ε2, cv.var1, cv.var2, defect)
 
 Serialization.serialize(densfile, (; map = MAP, depth = DEPTH, a = A, density = fp.v, header, environment))
-open_record(record, header, ["map", "depth", "a", "n", "iterations", "converged", "eps1", "eps2", "varf", "defect",
+open_record(record, header, ["map", "depth", "a", "n", "iterations", "converged", "eps1", "eps2", "var1f", "var2f", "defect",
     "blockfile", "density_file", "environment"])
 append_record(record, [MAP, DEPTH, A, P.n, fp.iterations, fp.converged, write_endpoint(res.ε1)[1],
-    write_endpoint(res.ε2)[1], write_endpoint(varf)[1], write_endpoint(defect)[1], basename(blkfile), basename(densfile), environment])
+    write_endpoint(res.ε2)[1], write_endpoint(cv.var1)[1], write_endpoint(cv.var2)[1], write_endpoint(defect)[1], basename(blkfile), basename(densfile), environment])
 println("recorded in $(basename(record)), density in $(basename(densfile)) ($(round(time() - t0; digits = 1)) s)")

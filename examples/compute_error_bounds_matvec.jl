@@ -62,7 +62,7 @@ function compute_error_bound_matvec(F, domain, noise, label;
                                      safety_margin=1.0)
     ξ = minimum(diam(noise[i]) for i in 1:length(noise))
     σ = ξ / 2
-    var_ρ = noise_variation(noise)
+    var_ρ = noise_var12(noise)
 
     println("\n" * "="^70)
     @printf("%s: ξ = %.4f (σ = %.4f), var(ρ) = %.2f, depth = %d\n", label, ξ, σ, var_ρ, depth)

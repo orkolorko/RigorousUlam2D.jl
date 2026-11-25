@@ -54,6 +54,6 @@ header = run_header(RigorousUlam2D, "bench/l1_mixing_merge.jl"; map = MAP, depth
     parts = join(PARTS, " "), blocksha = parts[1].sha, u = parts[1].u)
 print(header)
 s = record_column_sweep(DATADIR, SCRIPT, MAP, DEPTH, A, C, header, environment, sum(p.seconds for p in parts);
-                        g.h, g.varρ, n)
+                        g.h, g.var12ρ, n)
 s === nothing ? println("no C_j below 1 up to j = $M") :
     @printf("Σ_grid ≤ %.6g at k = %d (α = %.6g), Σ_V ≤ %.6g\n", s.grid, s.k, s.α, s.V)

@@ -7,12 +7,12 @@ side `h`, and between `f_ξ` and a computed vector `f̃`, from bounds on the nor
 Vectors are in the grid order of `noisy_operator.jl` and hold cell masses: the function with
 values `m_i / h²` on the cells, `‖f‖_{L¹} = Σ|m_i|`.
 
-**The constants.** For `ρ_ξ` the uniform density on `[-a, a]²`, `V_i(ρ_ξ) = 1/a` is its variation
-in the direction `e_i`, and `var(ρ_ξ) := V_1(ρ_ξ) + V_2(ρ_ξ) = 2/a`.  On the grid of squares of
+**The constants.** For `ρ_ξ` the uniform density on `[-a, a]²`, `var_i(ρ_ξ) = 1/a` is its variation
+in the direction `e_i`, and `var₁₂(ρ_ξ) := var₁(ρ_ξ) + var₂(ρ_ξ) = 2/a`.  On the grid of squares of
 side `h` (math/local_ly_2d.tex, Lemma "square cell" and Proposition "two projection constants"):
 
-    ‖(I − π_h) N_ξ‖₁ ≤ (h/2) var(ρ_ξ),   ‖N_ξ (I − π_h)‖₁ ≤ (h/2) var(ρ_ξ),
-    ‖(I − π_h) f‖₁ ≤ (h/2) (V_1(f) + V_2(f)).
+    ‖(I − π_h) N_ξ‖₁ ≤ (h/2) var₁₂(ρ_ξ),   ‖N_ξ (I − π_h)‖₁ ≤ (h/2) var₁₂(ρ_ξ),
+    ‖(I − π_h) f‖₁ ≤ (h/2) var₁₂(f).
 
 **The scheme.** With `e := f_ξ − f_h ∈ V` (both densities integrate to one),
 
@@ -22,9 +22,9 @@ so `‖e‖₁ ≤ Σ_V · ‖(L_ξ − P_h) f_ξ‖₁` with `Σ_V ≥ ‖(I �
 
 **The defect** (`defect_apriori`). Writing
 `L_ξ − P_h = (I − π_h) N_ξ L_T + π_h N_ξ (I − π_h) L_T + π_h N_ξ π_h L_T (I − π_h)`, the first two
-terms are at most `(h/2) var(ρ_ξ)` each on a density, and the third at most
-`(h/2)(V_1 + V_2)(f_ξ)`; `f_ξ = N_ξ (L_T f_ξ)` gives `V_i(f_ξ) ≤ V_i(ρ_ξ)` (Lemma "moll" there), so
-`‖(L_ξ − P_h) f_ξ‖₁ ≤ (3h/2) var(ρ_ξ)` a priori.
+terms are at most `(h/2) var₁₂(ρ_ξ)` each on a density, and the third at most
+`(h/2)var₁₂(f_ξ)`; `f_ξ = N_ξ (L_T f_ξ)` gives `var_i(f_ξ) ≤ var_i(ρ_ξ)` (Lemma "moll" there), so
+`‖(L_ξ − P_h) f_ξ‖₁ ≤ (3h/2) var₁₂(ρ_ξ)` a priori.
 
 **The resolvent on `V`.** For `v ∈ V`, `(I − P_h)⁻¹ v = v + (I − P_h)⁻¹ P_h v` with
 `P_h v ∈ V_h`, the zero-sum grid vectors, and `‖P_h v‖₁ ≤ ‖v‖₁`; so `Σ_V ≤ 1 + Σ_grid` with
@@ -39,11 +39,11 @@ terms are at most `(h/2) var(ρ_ξ)` each on a density, and the third at most
 
 The residual `ε₁` is the ℓ¹ norm of the computed `fl(N L̂ f̃) − f̃` plus the ℓ¹ rounding model of
 `noisy_operator` (`η₁ ‖f̃‖₁ + η₁ᴬ`), which covers the rounding of both products and the
-enclosure `L_lo ≤ L ≤ L_lo + U`.  The variation of the computed density on the torus is
-`grid_variation`.  Every constant is rounded upward.
+enclosure `L_lo ≤ L ≤ L_lo + U`.  The coordinate variations of the computed density on the torus
+are `coordinate_variations`.  Every constant is rounded upward.
 """
 
-export grid_variation, ulam_fixed_point, fixed_point_residual, fixed_point_distance,
+export coordinate_variations, ulam_fixed_point, fixed_point_residual, fixed_point_distance,
     sigma_from_norms, defect_apriori, coarse_fine_norms, swapped_error
 
 _sum_up(v) = foldl(add_up, v; init = 0.0)
@@ -51,25 +51,28 @@ _sum_down(v) = -foldl((s, x) -> add_up(s, -x), v; init = 0.0)
 _absdiff_up(a, b) = max(sub_up(a, b), sub_up(b, a))
 
 """
-    grid_variation(m, k, h) -> var
+    coordinate_variations(m, k, h) -> (; var1, var2)
 
-An upper bound on the variation on the torus of the piecewise-constant function with cell masses
-`m` (grid order, `k × k` cells of side `h`): the jump `|m_i − m_j| / h²` across each of the `2k²`
-edges of length `h`, so `var = Σ_edges |m_i − m_j| / h`, rounded upward.
+Upper bounds on `var₁(f)` and `var₂(f)`, the variations in the directions `e₁` and `e₂` on the
+torus of the function `f` constant on the cells with masses `m` (grid order, `k × k` cells of
+side `h`, `M[iy, ix]`): the jump `|m_i − m_j| / h²` across an edge of length `h`, summed over the
+`k²` edges normal to `e₁` (between horizontal neighbours) for `var₁` and over those normal to `e₂`
+for `var₂`, every operation upward.  `var₁₂(f) = var₁(f) + var₂(f)` is what the cell estimates of
+math/local_ly_2d.tex use; the isotropic variation `Var(f)` is not computed here.
 """
-function grid_variation(m::AbstractVector{Float64}, k::Int, h::Float64)
+function coordinate_variations(m::AbstractVector{Float64}, k::Int, h::Float64)
     length(m) == k * k || throw(DimensionMismatch("expected $(k * k) masses, got $(length(m))"))
     M = reshape(m, k, k)                   # M[iy, ix]
-    s = 0.0
+    s1 = 0.0; s2 = 0.0
     @inbounds for ix in 1:k
         ixn = mod1(ix + 1, k)
         for iy in 1:k
             a = M[iy, ix]
-            s = add_up(s, _absdiff_up(a, M[mod1(iy + 1, k), ix]))
-            s = add_up(s, _absdiff_up(a, M[iy, ixn]))
+            s1 = add_up(s1, _absdiff_up(a, M[iy, ixn]))           # across the edge normal to e₁
+            s2 = add_up(s2, _absdiff_up(a, M[mod1(iy + 1, k), ix])) # across the edge normal to e₂
         end
     end
-    return div_up(s, h)
+    return (; var1 = div_up(s1, h), var2 = div_up(s2, h))
 end
 
 """
@@ -147,15 +150,15 @@ function sigma_from_norms(C::AbstractVector{<:Real})
 end
 
 """
-    defect_apriori(h, varρ) -> bound
+    defect_apriori(h, var12ρ) -> bound
 
-`‖(L_ξ − P_h) f_ξ‖₁ ≤ (3h/2) var(ρ_ξ)` on the grid of squares of side `h`, with
-`var(ρ_ξ) = V_1(ρ_ξ) + V_2(ρ_ξ)`; see the file docstring.  Upward.
+`‖(L_ξ − P_h) f_ξ‖₁ ≤ (3h/2) var₁₂(ρ_ξ)` on the grid of squares of side `h`, with
+`var₁₂(ρ_ξ) = var₁(ρ_ξ) + var₂(ρ_ξ)`; see the file docstring.  Upward.
 """
-defect_apriori(h::Float64, varρ::Float64) = mul_up(mul_up(1.5, h), varρ)
+defect_apriori(h::Float64, var12ρ::Float64) = mul_up(mul_up(1.5, h), var12ρ)
 
 """
-    coarse_fine_norms(C, h, varρ; first = 1.0) -> F
+    coarse_fine_norms(C, h, var12ρ; first = 1.0) -> F
 
 Bounds `F_k ≥ ‖Λ^k|_V‖_{L¹}`, `k = 1, …, length(C) + 1`, for `Λ = σ N_ξ σ L_T σ` with `σ` the
 Ulam projection of any dyadic refinement of the grid of squares of side `h`, or the identity
@@ -164,15 +167,15 @@ Ulam projection of any dyadic refinement of the grid of squares of side `h`, or 
 recursion of math/local_ly_2d.tex, Proposition "recursion" (Galatolo, Monge, Nisoli 2020,
 Lemma 29 with (36), with the two constants kept apart), as `norms_of_powers_recursive_noise(a,
 b, C)` of RigorousInvariantMeasures, with `a ≥ ‖(I − π_h) N_ξ‖₁` and `b ≥ ‖N_ξ (I − π_h)‖₁` both
-`(h/2) var(ρ_ξ)`, rounded upward.  `first ≥ ‖Λ‖` on `V`; 1 for a Markov operator.
+`(h/2) var₁₂(ρ_ξ)`, rounded upward.  `first ≥ ‖Λ‖` on `V`; 1 for a Markov operator.
 """
-function coarse_fine_norms(C::AbstractVector{<:Real}, h::Float64, varρ::Float64; first::Real = 1.0)
-    c = mul_up(0.5 * h, varρ)                   # h/2 is exact
+function coarse_fine_norms(C::AbstractVector{<:Real}, h::Float64, var12ρ::Float64; first::Real = 1.0)
+    c = mul_up(0.5 * h, var12ρ)                   # h/2 is exact
     return RIM.norms_of_powers_recursive_noise(c, c, [Float64(x, RoundUp) for x in C]; first)
 end
 
 """
-    swapped_error(Σ, h, varρ, ε1, ε2) -> bound
+    swapped_error(Σ, h, var12ρ, ε1, ε2) -> bound
 
 `‖f_ξ − f̃‖₁` for a computed `f̃ ≥ 0` that is constant on the cells of the grid of squares of side
 `h` of `P_h`, with `ε1 ≥ ‖P_h f̃ − f̃‖₁`, `ε2 ≥ |Σf̃ − 1|` (`fixed_point_residual`) and
@@ -182,17 +185,17 @@ end
     (I − L_ξ)(u − f_ξ) = (u − P_h u) + (P_h − L_ξ) u;
 
 in `L_ξ − P_h = (I − π_h) N_ξ L + π_h N_ξ (I − π_h) L + π_h N_ξ π_h L (I − π_h)` the last term
-vanishes on `u`, which `π_h` fixes, and the other two are at most `(h/2) var(ρ_ξ)` each
+vanishes on `u`, which `π_h` fixes, and the other two are at most `(h/2) var₁₂(ρ_ξ)` each
 (`‖u‖₁ = 1`; file docstring).  Hence
 
-    ‖u − f_ξ‖₁ ≤ Σ (h var(ρ_ξ) + ε1/(1 − ε2)),   ‖f̃ − u‖₁ = |Σf̃ − 1| ≤ ε2,
+    ‖u − f_ξ‖₁ ≤ Σ (h var₁₂(ρ_ξ) + ε1/(1 − ε2)),   ‖f̃ − u‖₁ = |Σf̃ − 1| ≤ ε2,
 
-and the bound is their sum, rounded upward; against `Σ · (3h/2) var(ρ_ξ)` of the direct route it
+and the bound is their sum, rounded upward; against `Σ · (3h/2) var₁₂(ρ_ξ)` of the direct route it
 spends `h` in place of `3h/2`.
 """
-function swapped_error(Σ::Float64, h::Float64, varρ::Float64, ε1::Float64, ε2::Float64)
+function swapped_error(Σ::Float64, h::Float64, var12ρ::Float64, ε1::Float64, ε2::Float64)
     ε2 < 1 || throw(ArgumentError("the mass defect ε2 = $ε2 must be below 1"))
     den = -sub_up(ε2, 1.0)                                  # 1 − ε2, downward
-    defect = add_up(mul_up(h, varρ), div_up(ε1, den))
+    defect = add_up(mul_up(h, var12ρ), div_up(ε1, den))
     return add_up(mul_up(Σ, defect), ε2)
 end

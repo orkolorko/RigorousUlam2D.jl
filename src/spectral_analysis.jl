@@ -22,14 +22,14 @@ Reference: Galatolo-Monge-Nisoli-Poloni (2014), RigorousInvariantMeasure.jl
 
 using LinearAlgebra
 using SparseArrays
-using BallArithmetic: add_up, mul_up, sub_up, sqrt_up, gamma_bound
+using BallArithmetic: add_up, mul_up, sub_up, sub_down, div_up, sqrt_up, gamma_bound
 using RigorousPseudospectra: RigorousPseudospectra
 
 export operator_norm_on_V, find_contraction_power, operator_norm_on_V_power
 export rigorous_norm_on_V, higham_gamma
 export norms_of_powers_columns, norms_of_powers_sparse, norms_of_powers_matvec, refine_norms_of_powers
 export compute_stationary_density, rigorous_error_bound
-export noise_variation, ulam_approximation_error
+export noise_coordinate_variations, noise_var12, ulam_approximation_error
 
 """
     operator_norm_on_V(P::AbstractMatrix; measure::Union{Vector{Float64},Nothing}=nothing)
@@ -627,59 +627,25 @@ function compute_stationary_density(P::AbstractMatrix;
 end
 
 """
-    noise_variation(noise::IntervalBox{N}; noise_type::Symbol=:uniform) where {N}
+    noise_coordinate_variations(noise::IntervalBox{N}) -> NTuple{N,Float64}
 
-Compute the variation (total variation seminorm) of the noise density ρ.
-
-For uniform noise on a box of width ξ in each dimension:
-- In 1D: var(ρ) = 2/ξ (two jumps of height 1/ξ)
-- In 2D: var(ρ) = 4/ξ (for square noise, perimeter/area scaling)
-
-# Arguments
-- `noise`: The noise support box
-- `noise_type`: Type of noise (:uniform or :triangular)
-
-# Returns
-- var(ρ): The total variation of the noise density
-
-# Reference
-ZZ paper, below Theorem B
+Upper bounds on `var_i(ρ)`, the variation in the direction `e_i` of the uniform density `ρ` on the
+box `noise` of widths `ξ_1, …, ξ_N`: `ρ` jumps by `1/Πξ_j` across each of the two faces normal to
+`e_i`, of area `Π_{j≠i} ξ_j`, so `var_i(ρ) = 2/ξ_i`.  Each `ξ_i` is taken downward from the ends
+of the box and the quotient upward.  These are the coordinate variations of math/local_ly_2d.tex;
+the isotropic variation `Var(ρ)` is not computed here.
 """
-function noise_variation(noise; noise_type::Symbol=:uniform)
-    N = length(noise)
-
-    if noise_type == :uniform
-        # For uniform density on box with side lengths ξ_i:
-        # In 2D with square noise (ξ₁ = ξ₂ = ξ):
-        # var(ρ) = 4/ξ (perimeter / area = 4ξ / ξ² = 4/ξ)
-        #
-        # More generally, for rectangular uniform noise:
-        # var(ρ) = 2 * Σ (1/ξ_i) * Π_{j≠i} ξ_j / Π ξ_j
-        #        = 2 * Σ (1/ξ_i) (each face contributes twice)
-
-        widths = [diam(noise[i]) for i in 1:N]
-
-        if N == 2
-            # 2D case: var(ρ) = 2*(1/ξ₁ + 1/ξ₂) for rectangular
-            # For square: var(ρ) = 4/ξ
-            return 2 * sum(1 ./ widths)
-        else
-            # General N-dimensional case
-            # For uniform density on box, var(ρ) = 2 * Σ (1/ξ_i)
-            # Each pair of opposite faces contributes 2/ξ_i to the variation
-            total_var = 0.0
-            for i in 1:N
-                total_var += 2 / widths[i]
-            end
-            return total_var
-        end
-    elseif noise_type == :triangular
-        # Triangular noise has bounded variation from piecewise linear density
-        error("Triangular noise variation not yet implemented")
-    else
-        error("Unknown noise type: $noise_type")
-    end
+function noise_coordinate_variations(noise::IntervalBox{N}) where {N}
+    return ntuple(i -> div_up(2.0, sub_down(sup(noise[i]), inf(noise[i]))), N)
 end
+
+"""
+    noise_var12(noise::IntervalBox) -> Float64
+
+`var₁₂(ρ) = Σ_i var_i(ρ)` of `noise_coordinate_variations`, summed upward; for a square of side
+`ξ` it is `4/ξ`.
+"""
+noise_var12(noise::IntervalBox) = foldl(add_up, noise_coordinate_variations(noise); init = 0.0)
 
 """
     ulam_approximation_error(partition; method::Symbol=:upper_bound)
@@ -814,7 +780,7 @@ function rigorous_error_bound(P_noisy::AbstractMatrix, partition, noise;
     δ = ulam_approximation_error(partition, method=:upper_bound)
 
     # Step 3: Compute noise variation var(ρ)
-    var_ρ = noise_variation(noise)
+    var_ρ = noise_var12(noise)
 
     # Step 4: Compute noise scale ξ (minimum noise width)
     ndims = length(noise)

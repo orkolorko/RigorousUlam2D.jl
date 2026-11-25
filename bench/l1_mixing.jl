@@ -6,7 +6,7 @@
 # choice in the bound, is the density of the stationary_density record of the same (map, depth, a)
 # when there is one, else the power iteration.  The C_j are refined by submultiplicativity
 # (`refine_norms_of_powers`); `sigma_from_norms` gives Σ_grid ≥ ‖(I − P_h)⁻¹|_{V_h}‖₁ and
-# Σ_V = 1 + Σ_grid, and with the a priori defect (3h/2) var(ρ_ξ), ‖f_ξ − f_h‖₁ ≤ Σ_V · (3h/2) var(ρ_ξ)
+# Σ_V = 1 + Σ_grid, and with the a priori defect (3h/2) var₁₂(ρ_ξ), ‖f_ξ − f_h‖₁ ≤ Σ_V · (3h/2) var₁₂(ρ_ξ)
 # (src/l1_error.jl).
 #
 # Env: MAP, DEPTH, A (rational such as 51//512), M (largest power, 150), BLOCK (columns per
@@ -66,7 +66,7 @@ header = run_header(RigorousUlam2D, "bench/$SCRIPT.jl"; map = MAP, depth = DEPTH
     cols = "$(first(cols)):$(last(cols))", n = P.n, blockfile = basename(blkfile), blocksha = file_sha256(blkfile),
     u = densfile === nothing ? "power iteration" : densfile, η1 = P.info.η1, eta1A = P.info.eta1A, normP = P.normP)
 print(header)
-@printf("%s depth %d n = %d, a = %s, h = %.6g, var(ρ_ξ) = %.6g, columns %s (%.1f s)\n", MAP, DEPTH, P.n, A, P.h, P.varρ, cols, time() - t0)
+@printf("%s depth %d n = %d, a = %s, h = %.6g, var₁₂(ρ_ξ) = %.6g, columns %s (%.1f s)\n", MAP, DEPTH, P.n, A, P.h, P.var12ρ, cols, time() - t0)
 flush(stdout)
 
 tc = @elapsed C = norms_of_powers_columns(P.info.Bmul!, P.n, M; η1 = P.info.η1, eta1A = P.info.eta1A,
@@ -79,7 +79,7 @@ if part !== nothing
     end
     println("recorded in $(basename(part))")
 else
-    s = record_column_sweep(DATADIR, SCRIPT, MAP, DEPTH, A, C, header, environment, tc; P.h, P.varρ, P.n)
+    s = record_column_sweep(DATADIR, SCRIPT, MAP, DEPTH, A, C, header, environment, tc; P.h, P.var12ρ, P.n)
     s === nothing ? println("no C_j below 1 up to j = $M") :
         @printf("Σ_grid ≤ %.6g at k = %d (α = %.6g), Σ_V ≤ %.6g\n", s.grid, s.k, s.α, s.V)
     println("recorded in $(basename(powers)) and $(basename(summary))")

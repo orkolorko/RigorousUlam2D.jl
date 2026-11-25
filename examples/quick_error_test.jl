@@ -81,7 +81,7 @@ end
 # Coarse-fine strategy: transfer coarse norms to fine grid
 println("\n\nCoarse-fine strategy:")
 println("  Coarse grid: $(n) boxes, δ_coarse = $(δ)")
-var_ρ = noise_variation(noise)
+var_ρ = noise_var12(noise)
 @printf("  var(ρ) = %.4f, DFLY: A=0, B=var(ρ)=%.4f\n", var_ρ, var_ρ)
 
 for n_fine_target in [4096, 16384, 65536]

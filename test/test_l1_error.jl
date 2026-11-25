@@ -4,31 +4,33 @@ using BallArithmetic: mul_up, sqrt_up, div_up
 const RIMl = RigorousInvariantMeasures
 
 @testset "the L¹ error scheme" begin
-    @testset "grid_variation against the edge sum" begin
+    @testset "coordinate_variations against the edge sums" begin
         Random.seed!(2)
         k, h = 5, 0.25
         m = rand(k * k)
-        M = reshape(m, k, k)
-        s = 0.0
-        for ix in 1:k, iy in 1:k
-            s += abs(M[iy, ix] - M[mod1(iy + 1, k), ix]) + abs(M[iy, ix] - M[iy, mod1(ix + 1, k)])
-        end
-        v = grid_variation(m, k, h)
-        @test v >= s / h
-        @test v ≈ s / h rtol = 1e-12
-        # a single bump of mass 1 in a cell of side h: four jumps of height 1/h², edges of length h
+        M = reshape(m, k, k)                         # M[iy, ix]
+        s1 = sum(abs(M[iy, ix] - M[iy, mod1(ix + 1, k)]) for ix in 1:k, iy in 1:k)   # edges normal to e₁
+        s2 = sum(abs(M[iy, ix] - M[mod1(iy + 1, k), ix]) for ix in 1:k, iy in 1:k)   # edges normal to e₂
+        v = coordinate_variations(m, k, h)
+        @test v.var1 >= s1 / h && v.var2 >= s2 / h
+        @test isapprox(v.var1, s1 / h; rtol = 1e-12) && isapprox(v.var2, s2 / h; rtol = 1e-12)
+        # a function of x alone (constant along e₂) has var₂ = 0, and the reverse
+        mx = vec(repeat(rand(1, k), k, 1))           # M[iy, ix] depends on ix only
+        @test coordinate_variations(mx, k, h).var2 == 0 && coordinate_variations(mx, k, h).var1 > 0
+        my = vec(repeat(rand(k, 1), 1, k))
+        @test coordinate_variations(my, k, h).var1 == 0 && coordinate_variations(my, k, h).var2 > 0
+        # a single bump of mass 1 in a cell of side h: two jumps of 1/h² across edges of length h each way
         e = zeros(k * k); e[7] = 1.0
-        @test grid_variation(e, k, h) >= 4 / h
-        @test grid_variation(e, k, h) ≈ 4 / h rtol = 1e-15
-        @test grid_variation(ones(k * k), k, h) == 0.0
-        @test_throws DimensionMismatch grid_variation(ones(k * k + 1), k, h)
+        @test coordinate_variations(e, k, h).var1 >= 2 / h && coordinate_variations(e, k, h).var2 >= 2 / h
+        @test coordinate_variations(ones(k * k), k, h) == (; var1 = 0.0, var2 = 0.0)
+        @test_throws DimensionMismatch coordinate_variations(ones(k * k + 1), k, h)
     end
 
     @testset "the constants against BigFloat" begin
         setprecision(BigFloat, 256) do
-            h, varρ = 2 / 64, 2 / 0.3
-            @test defect_apriori(h, varρ) >= 1.5 * big(h) * big(varρ)
-            @test defect_apriori(h, varρ) <= 1.5 * big(h) * big(varρ) * (1 + 1e-15)
+            h, var12ρ = 2 / 64, 2 / 0.3
+            @test defect_apriori(h, var12ρ) >= 1.5 * big(h) * big(var12ρ)
+            @test defect_apriori(h, var12ρ) <= 1.5 * big(h) * big(var12ρ) * (1 + 1e-15)
         end
         @test fixed_point_distance(10.0, 1e-14, 1e-16) >= 10 * big(1e-14) / (1 - big(1e-16)) + big(1e-16)
         @test_throws ArgumentError fixed_point_distance(10.0, 1e-14, 1.0)
@@ -97,8 +99,8 @@ const RIMl = RigorousInvariantMeasures
         nc = 4^6; M = 30
         u = ulam_fixed_point(ic.Amul, nc).v
         C = norms_of_powers_columns(ic.Bmul!, nc, M; η1 = ic.η1, eta1A = ic.eta1A, u, block = 64)
-        h = 1 / 64; varρ = div_up(16.0, 3.0)                       # 2/a
-        F = coarse_fine_norms(refine_norms_of_powers(C, M), h, varρ)
+        h = 1 / 64; var12ρ = div_up(16.0, 3.0)                       # 2/a
+        F = coarse_fine_norms(refine_norms_of_powers(C, M), h, var12ρ)
         @test length(F) == M + 1 && all(<=(1), F) && any(<(1), F)
         # a lower bound on ‖P_f^k|_V‖₁: half the largest distance between the images of 48
         # cells, as (e_i − e_j)/2 lies in the unit ball of V; the fine operator is the computed one
@@ -117,20 +119,20 @@ const RIMl = RigorousInvariantMeasures
     @testset "swapped_error against BigFloat" begin
         Random.seed!(11)
         for _ in 1:200
-            Σ, h, varρ = 1 + 50rand(), rand() / 100, 1 + 20rand()
+            Σ, h, var12ρ = 1 + 50rand(), rand() / 100, 1 + 20rand()
             ε1, ε2 = rand() * 1e-10, rand() * 1e-10
-            b = swapped_error(Σ, h, varρ, ε1, ε2)
+            b = swapped_error(Σ, h, var12ρ, ε1, ε2)
             exact = setprecision(BigFloat, 256) do
                 B = big
-                B(Σ) * (B(h) * B(varρ) + B(ε1) / (1 - B(ε2))) + B(ε2)
+                B(Σ) * (B(h) * B(var12ρ) + B(ε1) / (1 - B(ε2))) + B(ε2)
             end
             @test b >= exact && b <= exact * (1 + 1e-14)
-            @test b < mul_up(Σ, defect_apriori(h, varρ))   # below the direct route when the residuals are small
+            @test b < mul_up(Σ, defect_apriori(h, var12ρ))   # below the direct route when the residuals are small
         end
         @test_throws ArgumentError swapped_error(1.0, 0.1, 1.0, 0.0, 1.0)
     end
 
-    @testset "rounding: sigma_from_norms, coarse_fine_norms, grid_variation against BigFloat" begin
+    @testset "rounding: sigma_from_norms, coarse_fine_norms, coordinate_variations against BigFloat" begin
         Random.seed!(17)
         setprecision(BigFloat, 256) do
             for _ in 1:50
@@ -145,9 +147,9 @@ const RIMl = RigorousInvariantMeasures
                 @test sigma_from_norms(Cb).grid >= sum(min(1, Cb[i]) for i in 1:sigma_from_norms(Cb).k-1; init = big(1)) /
                                                      (1 - Cb[sigma_from_norms(Cb).k])
                 # the recursion of coarse_fine_norms, in BigFloat with the same constant
-                h, varρ = 2.0^-9, 2 / (51 / 512)
-                F = coarse_fine_norms(C, h, varρ)
-                c = big(h) / 2 * big(varρ)
+                h, var12ρ = 2.0^-9, 2 / (51 / 512)
+                F = coarse_fine_norms(C, h, var12ρ)
+                c = big(h) / 2 * big(var12ρ)
                 Cx(k) = k == 0 ? big(1) : big(C[k])
                 Fx = Vector{BigFloat}(undef, M + 1); Fx[1] = 1
                 F0(k) = k == 0 ? big(1) : Fx[k]
@@ -160,13 +162,14 @@ const RIMl = RigorousInvariantMeasures
                 end
                 @test all(F .>= Fx)
             end
-            # grid_variation: the edge sum |m_i − m_j|/h, upward
+            # coordinate_variations: the edge sums |m_i − m_j|/h, upward
             k = 8; h = 2.0 / k
             m = rand(k * k) ./ 64
             Mx = reshape(big.(m), k, k)
-            ex = sum(abs(Mx[iy, ix] - Mx[mod1(iy + 1, k), ix]) + abs(Mx[iy, ix] - Mx[iy, mod1(ix + 1, k)])
-                     for ix in 1:k, iy in 1:k) / big(h)
-            @test grid_variation(m, k, h) >= ex
+            e1 = sum(abs(Mx[iy, ix] - Mx[iy, mod1(ix + 1, k)]) for ix in 1:k, iy in 1:k) / big(h)
+            e2 = sum(abs(Mx[iy, ix] - Mx[mod1(iy + 1, k), ix]) for ix in 1:k, iy in 1:k) / big(h)
+            cv = coordinate_variations(m, k, h)
+            @test cv.var1 >= e1 && cv.var2 >= e2
         end
     end
 end

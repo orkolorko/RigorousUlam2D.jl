@@ -391,7 +391,7 @@ function wavelet_rigorous_error_bound(P_noisy, partition, noise;
 
     # Compute error bound parameters
     δ = ulam_approximation_error(partition, method=:upper_bound)
-    var_ρ = noise_variation(noise)
+    var_ρ = noise_var12(noise)
     ndims = length(noise)
     ξ = minimum(diam(noise[i]) for i in 1:ndims)
     sum_C = Float64(N_power)

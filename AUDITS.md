@@ -78,7 +78,8 @@ Passed, every operation in the direction that keeps a bound:
 - `fixed_point_residual` (`|·|` by `_absdiff_up`, sums `add_up`, `Σf̃` both ways),
   `fixed_point_distance` and `swapped_error` (`1 − ε₂` downward, quotients and sums upward, the
   mass term `ε₂`); checked against BigFloat.
-- `grid_variation`: edge differences and their sum upward, divided by `h` upward; checked against
+- `grid_variation` (since renamed `coordinate_variations`, returning `var₁` and `var₂` apart): edge
+  differences and their sums upward, divided by `h` upward; checked against
   BigFloat.
 - `norms_of_powers_columns`: as in the entry above.
 - The records: bounds written by `write_endpoint` (the shortest decimal of the double, exact) and
@@ -88,3 +89,16 @@ Passed, every operation in the direction that keeps a bound:
 Not covered by this entry: `noisy_operator`'s `η` and `epsA` (the ℓ² model, used by the spectral
 routines and not by the L¹ chain), and the code of RigorousInvariantMeasures and BallArithmetic
 beyond the two routines named.
+
+## 2026-11-25: the variations renamed after the notation of the paper
+
+`Var` is the isotropic variation and `var₁`, `var₂` the variations in the coordinate directions;
+the code computes only the latter. `grid_variation` (which returned `var₁ + var₂`) is now
+`coordinate_variations`, returning `(; var1, var2)`; `noise_variation` is now
+`noise_coordinate_variations` (each `2/ξ_i`, with `ξ_i` taken downward from the ends of the box,
+where `diam` had been used, which rounds the width up and so the variation down) and
+`noise_var12`, their sum upward; `varρ` is `var12ρ` throughout the L¹ chain, and the
+stationary_density record has columns `var1f`, `var2f` for `varf`. Checked by reading and by the
+tests of test/test_l1_error.jl and test/test_spectral_analysis.jl against the edge sums, against
+256-bit sums, and on functions of one coordinate alone (whose other variation is 0). The values
+the L¹ chain used are unchanged: `var₁₂(ρ_ξ) = 2/a` was already computed from `a`.

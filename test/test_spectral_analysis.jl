@@ -138,17 +138,19 @@ using LinearAlgebra, SparseArrays
         @test result_doubly.π ≈ [0.5, 0.5] atol=1e-10
     end
 
-    @testset "noise_variation - 2D uniform" begin
-        # Square noise: ξ = 0.1, so var(ρ) = 4/ξ = 40
-        noise = uniform_noise_box(0.05, 2)  # width = 0.1
-        var_rho = noise_variation(noise)
-        @test var_rho ≈ 4 / 0.1 atol=1e-10
-
-        # Rectangular noise
-        noise_rect = anisotropic_noise_box([0.1, 0.05])  # widths = 0.2, 0.1
-        var_rect = noise_variation(noise_rect)
-        # var(ρ) = 2*(1/0.2 + 1/0.1) = 2*(5 + 10) = 30
-        @test var_rect ≈ 30.0 atol=1e-10
+    @testset "noise_coordinate_variations and noise_var12 - 2D uniform" begin
+        # square noise of width 0.1: var_i = 2/0.1 each, var₁₂ = 4/0.1
+        noise = uniform_noise_box(0.05, 2)
+        v = noise_coordinate_variations(noise)
+        @test all(x -> x >= 2 / big(0.1) - 1e-12 && x ≈ 20, v)
+        @test noise_var12(noise) >= v[1] && isapprox(noise_var12(noise), 40; atol = 1e-10)
+        # widths 0.2 and 0.1: var₁ = 10, var₂ = 20, var₁₂ = 30
+        noise_rect = anisotropic_noise_box([0.1, 0.05])
+        vr = noise_coordinate_variations(noise_rect)
+        @test isapprox(vr[1], 10; atol = 1e-10) && isapprox(vr[2], 20; atol = 1e-10)
+        @test noise_var12(noise_rect) ≈ 30.0 atol = 1e-10
+        # upward: the bound is at least 2 over the exact width of the box
+        @test all(i -> vr[i] >= 2 / (big(sup(noise_rect[i])) - big(inf(noise_rect[i]))), 1:2)
     end
 
     @testset "ulam_approximation_error" begin

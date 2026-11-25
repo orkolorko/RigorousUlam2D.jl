@@ -54,7 +54,7 @@ export operator_norm_on_V, operator_norm_on_V_power, find_contraction_power
 export rigorous_norm_on_V, rigorous_norm_on_V_power, higham_gamma
 export norms_of_powers_columns, norms_of_powers_sparse, norms_of_powers_matvec, refine_norms_of_powers
 export compute_stationary_density, spectral_gap
-export noise_variation, ulam_approximation_error, rigorous_error_bound
+export noise_coordinate_variations, noise_var12, ulam_approximation_error, rigorous_error_bound
 
 # Haar wavelet
 export HaarBasis2D, haar_forward!, haar_inverse!, haar_forward, haar_inverse

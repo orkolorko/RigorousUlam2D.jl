@@ -7,5 +7,5 @@ RigorousUlam2D = "2cbaba54-1f7c-42c5-a2df-29a8df60aaff"
 Serialization = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
 
 [sources]
-CertifiedRecords = {rev = "57174e337f2fea8e848270a6f720245c13a389d3", url = "https://github.com/orkolorko/CertifiedRecords.jl.git"}
+CertifiedRecords = {rev = "bc2d2243f9b8e96ce91464a65293293741295f36", url = "https://github.com/orkolorko/CertifiedRecords.jl.git"}
 RigorousUlam2D = {path = ".."}

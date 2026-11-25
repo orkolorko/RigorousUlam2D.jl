@@ -1,6 +1,7 @@
 # The certified numbers on record for RigorousUlam2D.tex, and figures of the computed densities.
 #
-# Reads, from ~/ResearchData/RigorousUlam2D_Data/data on this host, the latest records of
+# Reads, from ~/ResearchData/RigorousUlam2D_Data/data on this host, every record (all commits, a later
+# row replacing an earlier one of the same configuration) of
 # bench/stationary_density.jl, bench/l1_mixing.jl and bench/l1_transfer.jl (CertifiedRecords), and
 # writes into ~/ResearchData/RigorousUlam2D_Data/images:
 #
@@ -58,10 +59,22 @@ function tex(s; unicode::Bool = false)
 end
 rd(s) = s == "Inf" ? Inf : Float64(read_endpoint(s, 53), RoundUp)
 
-densrec = latest_record(DATA, "stationary_density")
-mixrec = latest_record(DATA, "l1_mixing")
-trrec = latest_record(DATA, "l1_transfer")
-dens, mix, tr = last(read_record(densrec)), last(read_record(mixrec)), last(read_record(trrec))
+# the rows of every record of each driver, oldest first, a later row replacing an earlier one
+# with the same key; each row remembers the record it came from
+function rows_of(prefix, key)
+    byk = Dict{Any,Dict{String,String}}()
+    for f in records(DATA, prefix)
+        for r in last(read_record(f))
+            r["record"] = basename(f)
+            byk[Tuple(r[c] for c in key)] = r
+        end
+    end
+    return collect(values(byk))
+end
+dens = rows_of("stationary_density", ("map", "depth", "a"))
+mix = rows_of("l1_mixing", ("map", "depth", "a"))
+tr = rows_of("l1_transfer", ("map", "coarse_depth", "a", "fine_depth"))
+sources = sort(unique(vcat([r["record"] for r in dens], [r["record"] for r in mix], [r["record"] for r in tr])))
 mkpath(IMAGES)
 
 rows = []
@@ -108,8 +121,8 @@ open(out("table_bounds", "tex"), "w") do io
 end
 
 open(out("sources", "txt"), "w") do io
-    for f in (densrec, mixrec, trrec)
-        println(io, "== ", basename(f)); foreach(l -> println(io, l), first(read_record(f)))
+    for f in sources
+        println(io, "== ", f); foreach(l -> println(io, l), first(read_record(joinpath(DATA, f))))
     end
     for r in rows
         println(io, "$(r.map) a = $(r.a): density $(r.density), powers $(r.powers)")

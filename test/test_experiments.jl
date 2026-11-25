@@ -39,6 +39,15 @@ using Serialization: deserialize
                                     env..., "DATAROOT" => root, "DATADIR" => data))
         lor = ("MAP" => "lorenz",)
         drv("tree_deepen.jl", (lor..., "D0" => "2", "D1" => "7", "STORE" => "7", "LEVEL" => "8", "BISECT" => "12"))
+        # two enclosures of the same matrices (read at levels 7 and 8, the second named as if from another
+        # host) meet entrywise
+        drv("tree_deepen.jl", (lor..., "D0" => "2", "D1" => "7", "STORE" => "7", "LEVEL" => "7", "BISECT" => "12"))
+        cp(block_file(data, "lorenz", 6; level = 7, bisect = 12, d1 = 7), block_file(data, "lorenz", 6; host = "other"))
+        cp(block_file(data, "lorenz", 6; level = 8, bisect = 12, d1 = 7), block_file(data, "lorenz", 6))
+        drv("compare_blocks.jl", (lor..., "DEPTH" => "6", "HOSTS" => "$(gethostname()),other"))
+        cb = only(last(read_record(latest_record(data, "compare_blocks"))))
+        @test cb["disjoint"] == "0" && parse(Float64, cb["U1_2_fl"]) >= parse(Float64, cb["U1_1_fl"])
+        rm(block_file(data, "lorenz", 6))
         # the drivers read the blocks under the default name, level 14, bisect 30, depth 12 targets
         for d in 6:7
             cp(block_file(data, "lorenz", d; level = 8, bisect = 12, d1 = 7), block_file(data, "lorenz", d))

@@ -24,7 +24,8 @@
 #   figures.density_<map>_a<p>-<q>_d<depth>.<commit>.<host>.h5
 #       the cell masses of f̃, bit for bit those of the stationary_density record, with the
 #       metadata needed to read them without this package (`write_density_hdf5`): the archival
-#       copy for the data repository.
+#       copy for the data repository.  A copy already in data/ for the same record, with the same
+#       masses, is reused rather than written again under this commit's name.
 #
 # The density in a figure is the computed f̃ (cell masses / cell area), not the stationary density
 # itself; the bound in the title is the certified distance between the two.  Rendering is headless.
@@ -102,13 +103,32 @@ end
 
 name(m) = m == "henon" ? "Hénon" : m == "lorenz" ? "Lorenz-like" : startswith(m, "mlorenz") ? "Contracting Lorenz" : m
 hdf5 = Dict{Any,String}()
+
+# An HDF5 copy already on record for this density: a file `<stem>*.h5` in DATA whose attribute
+# `source` names the same density record and whose masses equal the record's, bit for bit; the
+# oldest such file.  Reusing it keeps the names (and hashes) cited by the paper and the
+# deposit stable across reruns, which would otherwise write a copy named after each commit.
+function existing_hdf5(stem, source, masses)
+    paths = [joinpath(DATA, n) for n in readdir(DATA) if startswith(n, stem) && endswith(n, ".h5")]
+    for path in sort(paths; by = mtime)
+        same = h5open(path, "r") do io
+            read(attributes(io)["source"]) == source && read(io["masses"]) == masses
+        end
+        same && return path
+    end
+    return nothing
+end
 for r in rows
     rec = Serialization.deserialize(joinpath(DATA, r.density))
     f = rec.density
     k = 2^DEPTH; s = 2^(DEPTH - SHOW); sys = ulam_system(r.map)
-    h5 = joinpath(DATA, "$SCRIPT.density_$(r.map)_a$(replace(r.a, "//" => "-"))_d$DEPTH.$commit.$host.h5")
-    isfile(h5) || write_density_hdf5(h5, rec; source = r.density,
-        domain = [inf(sys.domain[1]), sup(sys.domain[1]), inf(sys.domain[2]), sup(sys.domain[2])])
+    stem = "$SCRIPT.density_$(r.map)_a$(replace(r.a, "//" => "-"))_d$DEPTH."
+    h5 = existing_hdf5(stem, r.density, f)
+    if h5 === nothing
+        h5 = joinpath(DATA, "$stem$commit.$host.h5")
+        write_density_hdf5(h5, rec; source = r.density,
+            domain = [inf(sys.domain[1]), sup(sys.domain[1]), inf(sys.domain[2]), sup(sys.domain[2])])
+    end
     hdf5[r] = h5
     M = reshape(f, k, k)                                  # M[iy, ix], grid order
     B = [sum(@view M[(j-1)*s+1:j*s, (i-1)*s+1:i*s]) for j in 1:2^SHOW, i in 1:2^SHOW]

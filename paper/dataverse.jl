@@ -15,7 +15,10 @@
 #                     (POST /api/dataverses/<alias>/datasets)
 #
 # The deposit is the files of files.tsv, README.md and MANIFEST.sha256.  With DOI set (a draft
-# dataset, doi:10.7910/DVN/XXXXXX), each of them is added to the draft by CertifiedRecords.dataverse_add,
+# dataset, doi:10.7910/DVN/XXXXXX), each of them that the draft does not already hold, with the same size
+# and checksum, is added to the draft by CertifiedRecords.dataverse_add; a file the draft holds under the
+# same name with other content stops the run before anything is sent, and the files the draft holds
+# that the deposit does not are listed.  Each addition is made by dataverse_add,
 # which compares the checksum Dataverse reports with the local one; afterwards the listing of the
 # draft is compared with the manifest.  Nothing is published.
 #
@@ -149,9 +152,23 @@ isempty(DOI) && exit()
 up = vcat([(f.path, f.directory, f.description) for f in sort(plan.files; by = key)],
           [(joinpath(out, n), "", d) for (n, d) in (("README.md", "how the files are read"),
                                                     ("MANIFEST.sha256", "SHA-256 of every file"))])
+# a file already in the draft with the same size and checksum is not sent again; one there under the same
+# name with other content stops the run before anything is sent, since adding it would make a second copy
+dkey(f) = (isempty(f.directory) ? "" : f.directory * "/") * f.label
+before = Dict(dkey(f) => f for f in dataverse_files(DOI; version = ":latest", token_file = default_token_file()))
+same(g, path) = g.size == filesize(path) && g.checksum == file_checksum(path, g.checksum_type)
+clash = [k for (path, dir, _) in up for k in ((isempty(dir) ? "" : dir * "/") * basename(path),)
+         if haskey(before, k) && !same(before[k], path)]
+isempty(clash) || error("in the draft of $DOI with other content (delete them there first): $(join(clash, ", "))")
+local_keys = Set((isempty(dir) ? "" : dir * "/") * basename(path) for (path, dir, _) in up)
+for k in sort(collect(setdiff(keys(before), local_keys)))
+    println("in the draft but not in this deposit: $k")
+end
 for (path, dir, d) in up
+    k = (isempty(dir) ? "" : dir * "/") * basename(path)
+    haskey(before, k) && (println("already in the draft: $k"); continue)
     f = dataverse_add(DOI, path; directory = dir, description = d)
-    println("added $(isempty(dir) ? "" : dir * "/")$(f.label), $(f.size) bytes, $(f.checksum_type) $(f.checksum)")
+    println("added $(dkey(f)), $(f.size) bytes, $(f.checksum_type) $(f.checksum)")
 end
 listed = Dict((isempty(f.directory) ? "" : f.directory * "/") * f.label => f for f in
               dataverse_files(DOI; version = ":draft", token_file = default_token_file()))

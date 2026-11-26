@@ -15,6 +15,9 @@
     put(data, "powers.lorenz.tsv",
         "# bench/l1_mixing.jl on h\n# map = lorenz, depth = 8, blockfile = blk_d8.jls, u = stationary_density.c0.h.tsv, η1 = 1\n" *
         "j\tC\n1\t0.5\n")
+    put(data, "d9.lorenz.jls", "coarse density")
+    put(data, "powers2.lorenz.tsv",
+        "# bench/l1_mixing.jl on h\n# map = lorenz, depth = 9, blockfile = blk_d8.jls, u = d9.lorenz.jls\nj\tC\n1\t0.5\n")
     put(data, "l1_transfer.c0.h.tsv",
         "# bench/l1_transfer.jl on h\nmap\tSigma\tenvironment\nlorenz\t4\tenv.Manifest.toml\n")
     put(images, "figures.table_bounds.c1.h.tex", "table")
@@ -25,14 +28,16 @@
         "== l1_transfer.c0.h.tsv\n# bench/l1_transfer.jl on h\n" *
         "lorenz a = 77//256: density d.lorenz.jls, powers powers.lorenz.tsv\n" *
         "    sha256 $(sha("density bytes"))  d.lorenz.jls\n" *
-        "    sha256 $(sha("hdf5 bytes"))  d.lorenz.h5\n")
+        "    sha256 $(sha("hdf5 bytes"))  d.lorenz.h5\n" *
+        "lorenz a = 51//256: density d.lorenz.jls, powers powers2.lorenz.tsv\n")
 
     p = deposit_plan(src; data, images)
     @test (p.commit, p.host) == ("c1", "h")
-    @test only(p.rows).hdf5 == "d.lorenz.h5"
+    @test p.rows[1].hdf5 == "d.lorenz.h5" && length(p.rows) == 2
     got = Dict(basename(f.path) => f.directory for f in p.files)
     @test got == Dict("d.lorenz.jls" => "densities", "d.lorenz.h5" => "densities",
                       "l1_transfer.c0.h.tsv" => "records", "powers.lorenz.tsv" => "records",
+                      "powers2.lorenz.tsv" => "records", "d9.lorenz.jls" => "densities",
                       "stationary_density.c0.h.tsv" => "records", "env.Manifest.toml" => "environments",
                       "figures.sources.c1.h.txt" => "figures", "figures.table_bounds.c1.h.tex" => "figures",
                       "figures.density_lorenz_a77-256_d12.c1.h.pdf" => "figures")

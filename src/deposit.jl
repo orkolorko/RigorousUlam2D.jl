@@ -27,7 +27,8 @@ description)`, `directory` the folder of the deposit it goes in:
 - `densities`: for every row of the sources file (one row of the table of bounds), the density
   record `stationary_density.*.jls` and its HDF5 copy, the files the sources file gives a SHA-256 for;
 - `records`: every record the sources file lists, the record of norms of powers (`powers`) of
-  every row, and the record each of these names in a column or header field `u`;
+  every row, and the record each of these names in the header field `u` (a `u` that is not a
+  record, but the density file a run read, goes to `densities`);
 - `environments`: every `Manifest.toml` copy that a record names in its column `environment`;
 - `figures`: the sources file and every file of `images` written by the same script at the same
   commit and host (the table and the density figures);
@@ -96,7 +97,10 @@ function deposit_plan(sources::AbstractString; data::AbstractString, images::Abs
         header, rs = read_record(joinpath(data, name))
         params = join(header, ", ")
         u = match(r"\bu = ([^,\s]+)", params)
-        u === nothing || push!(queue, u.captures[1])
+        if u !== nothing
+            endswith(u.captures[1], ".tsv") ? push!(queue, u.captures[1]) :
+                add!(data, u.captures[1], "densities", "density read as u by $name")
+        end
         for env in unique(get(x, "environment", "") for x in rs)
             isempty(env) || add!(data, env, "environments", "Manifest.toml of the run that wrote $name")
         end

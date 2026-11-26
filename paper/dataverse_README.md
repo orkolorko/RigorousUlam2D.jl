@@ -1,4 +1,4 @@
-# Certified stationary densities of random Hénon and contracting Lorenz maps
+# Certified stationary densities of random Hénon and Lorenz-like maps
 
 Data for M. J. Pacifico, R. Bioni Liberalquino, I. Nisoli, *On the existence, regularity and
 rigorous computation of stationary densities of systems with additive BV noise*: the computed

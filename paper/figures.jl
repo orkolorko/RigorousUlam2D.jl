@@ -100,7 +100,7 @@ for m in MAPS, a in ("77//256", "51//256", "51//512", "13//256")
                  density = d["density_file"], powers = sw["powers_file"]))
 end
 
-name(m) = m == "henon" ? "Hénon" : m == "lorenz" ? "Lorenz" : startswith(m, "mlorenz") ? "Contracting Lorenz" : m
+name(m) = m == "henon" ? "Hénon" : m == "lorenz" ? "Lorenz-like" : startswith(m, "mlorenz") ? "Contracting Lorenz" : m
 hdf5 = Dict{Any,String}()
 for r in rows
     rec = Serialization.deserialize(joinpath(DATA, r.density))

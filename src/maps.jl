@@ -28,7 +28,7 @@ for each sign of `x` for Lorenz, so the crossing enclosures of the two ends of a
 nest (see `_cut!`).
 """
 
-export henon_system, lorenz_system, contracting_lorenz_system
+export henon_system, lorenz_system, contracting_lorenz_system, metzger_lorenz_system
 
 const _A_HENON = interval(7) / interval(5)
 const _B_HENON = interval(3) / interval(10)
@@ -153,4 +153,60 @@ function contracting_lorenz_system(; ρ::Rational = 4 // 1, bisect::Int = 30, xi
     area = fibred_area(1, xcomp, yof; yint, xinv = xinv ? inv : nothing, bisect)
     domain = IntervalBox(interval(-0.5, 0.5), interval(-0.5, 0.5))
     return (; name = "clorenz_rho$(numerator(ρ))-$(denominator(ρ))", F, domain, area)
+end
+
+"""
+    metzger_lorenz_system(; ρ = 18//5, bisect = 30, xinv = true) -> (; name, F, domain, area)
+
+The contracting Lorenz map of the paper's third example, on `[-1/2, 1/2]²`, periodic: for `x > 0`,
+`F = (ρ x² − 1/2, y x⁶ − 1/4)`, for `x < 0`, `F = (1/2 − ρ x², −y x⁶ + 1/4)`.  The first component
+`ℓ` is increasing on both branches, `ℓ′(x) = 2ρ|x|`, so `K₂|x|^{s−1} ≤ ℓ′ ≤ K₁|x|^{s−1}` with `s = 2`,
+its Schwarzian derivative `−(3/2)(ℓ″/ℓ′)²` is negative, and `ℓ(0±) = ∓1/2`: condition (A0) of
+Metzger, Ann. IHP 17 (2000) 247, p. 249; `ρ ≤ 4` keeps `ℓ` in `[-1/2, 1/2]`.  The fibre contracts
+like `|x|^r` with `r = 6`.  `ρ` is a rational, entered as an interval quotient; the name carries
+it (`mlorenz_rho<p>-<q>`).
+
+The crossings of `ℓ = w` are `x = ((w + 1/2)/ρ)^{1/2}` (`x > 0`) and `x = −((1/2 − w)/ρ)^{1/2}`
+(`x < 0`), empty where the radicand is negative.  The fibre inverse is `(w + 1/4)/x⁶` (`x > 0`) and
+`(1/4 − w)/x⁶` (`x < 0`), and its integral over `[x, x + δ]` on pieces of one sign is that factor
+times `((x + δ)⁵ − x⁵)/(5 x⁵ (x + δ)⁵)`, written as `δ(5x⁴ + 10x³δ + 10x²δ² + 5xδ³ + δ⁴)` over the
+same denominator, as `fibred_area` asks.
+"""
+function metzger_lorenz_system(; ρ::Rational = 18 // 5, bisect::Int = 30, xinv::Bool = true)
+    0 < ρ <= 4 || throw(ArgumentError("ρ = $ρ must be in (0, 4] for ℓ to map [-1/2, 1/2] into itself"))
+    r = interval(numerator(ρ)) / interval(denominator(ρ))
+    c0, c1, h = interval(-0.25), interval(0.25), interval(0.5)
+    pos(x) = inf(x) >= 0
+    neg(x) = sup(x) <= 0
+    function F(x, y)
+        x2, x6 = x^2, x^6
+        Pp = (r * x2 - h, y * x6 + c0)
+        Pn = (h - r * x2, -y * x6 + c1)
+        pos(x) && return Pp
+        neg(x) && return Pn
+        return (hull(Pp[1], Pn[1]), hull(Pp[2], Pn[2]))
+    end
+    function xcomp(x)
+        pos(x) && return r * x^2 - h
+        neg(x) && return h - r * x^2
+        return hull(r * x^2 - h, h - r * x^2)
+    end
+    function yof(x, w)
+        pos(x) && return (w - c0) / x^6
+        neg(x) && return (c1 - w) / x^6
+        return hull((w - c0) / x^6, (c1 - w) / x^6)
+    end
+    # ∫_x^{x+δ} t⁻⁶ dt over a common denominator; called on pieces of one sign only
+    yint(x, δ, w) = (pos(x) ? (w - c0) : (c1 - w)) *
+        δ * (interval(5) * x^4 + interval(10) * x^3 * δ + interval(10) * x^2 * δ^2 + interval(5) * x * δ^3 + δ^4) /
+        (interval(5) * x^5 * (x + δ)^5)
+    root(t) = (q = intersect_interval(t, interval(0.0, Inf)); isempty_interval(q) ? q : sqrt(q))
+    function inv(X, w)
+        pos(X) && return root((w + h) / r)
+        neg(X) && return -root((h - w) / r)
+        return hull(root((w + h) / r), -root((h - w) / r))
+    end
+    area = fibred_area(1, xcomp, yof; yint, xinv = xinv ? inv : nothing, bisect)
+    domain = IntervalBox(interval(-0.5, 0.5), interval(-0.5, 0.5))
+    return (; name = "mlorenz_rho$(numerator(ρ))-$(denominator(ρ))", F, domain, area)
 end

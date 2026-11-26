@@ -15,14 +15,16 @@ import SHA
     ulam_system(name; kwargs...) -> (; name, F, domain, area)
 
 `henon_system`, `lorenz_system` or `contracting_lorenz_system` by name (`"henon"`, `"lorenz"`,
-`"clorenz_rho<p>-<q>"` for `ρ = p//q`), with `kwargs` passed on.
+`"clorenz_rho<p>-<q>"` for `contracting_lorenz_system` and `"mlorenz_rho<p>-<q>"` for
+`metzger_lorenz_system`, `ρ = p//q`), with `kwargs` passed on.
 """
 function ulam_system(name::AbstractString; kwargs...)
     name == "henon" && return henon_system(; kwargs...)
     name == "lorenz" && return lorenz_system(; kwargs...)
-    m = match(r"^clorenz_rho([0-9]+)-([0-9]+)$", name)
-    m === nothing && throw(ArgumentError("unknown map $name: henon, lorenz or clorenz_rho<p>-<q>"))
-    return contracting_lorenz_system(; ρ = parse(Int, m.captures[1]) // parse(Int, m.captures[2]), kwargs...)
+    m = match(r"^(clorenz|mlorenz)_rho([0-9]+)-([0-9]+)$", name)
+    m === nothing && throw(ArgumentError("unknown map $name: henon, lorenz, clorenz_rho<p>-<q> or mlorenz_rho<p>-<q>"))
+    ρ = parse(Int, m.captures[2]) // parse(Int, m.captures[3])
+    return m.captures[1] == "clorenz" ? contracting_lorenz_system(; ρ, kwargs...) : metzger_lorenz_system(; ρ, kwargs...)
 end
 
 """

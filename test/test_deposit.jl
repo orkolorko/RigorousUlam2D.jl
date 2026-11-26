@@ -4,6 +4,8 @@
     put(dir, name, s) = (write(joinpath(dir, name), s); joinpath(dir, name))
     put(data, "d.lorenz.jls", "density bytes")
     put(data, "d.lorenz.h5", "hdf5 bytes")
+    put(data, "d.mlorenz.jls", "m density")
+    put(data, "d.mlorenz.h5", "m hdf5")
     put(data, "blk_d8.jls", "coarse block")
     put(data, "blk_d12.jls", "fine block, too big"^100)
     put(data, "env.Manifest.toml", "manifest")
@@ -29,15 +31,18 @@
         "lorenz a = 77//256: density d.lorenz.jls, powers powers.lorenz.tsv\n" *
         "    sha256 $(sha("density bytes"))  d.lorenz.jls\n" *
         "    sha256 $(sha("hdf5 bytes"))  d.lorenz.h5\n" *
-        "lorenz a = 51//256: density d.lorenz.jls, powers powers2.lorenz.tsv\n")
+        "mlorenz_rho18-5 a = 51//256: density d.mlorenz.jls, powers powers2.lorenz.tsv\n" *
+        "    sha256 $(sha("m density"))  d.mlorenz.jls\n" *
+        "    sha256 $(sha("m hdf5"))  d.mlorenz.h5\n")
 
     p = deposit_plan(src; data, images)
     @test (p.commit, p.host) == ("c1", "h")
-    @test p.rows[1].hdf5 == "d.lorenz.h5" && length(p.rows) == 2
+    @test [(r.map, r.hdf5) for r in p.rows] == [("lorenz", "d.lorenz.h5"), ("mlorenz_rho18-5", "d.mlorenz.h5")]
     got = Dict(basename(f.path) => f.directory for f in p.files)
     @test got == Dict("d.lorenz.jls" => "densities", "d.lorenz.h5" => "densities",
                       "l1_transfer.c0.h.tsv" => "records", "powers.lorenz.tsv" => "records",
                       "powers2.lorenz.tsv" => "records", "d9.lorenz.jls" => "densities",
+                      "d.mlorenz.jls" => "densities", "d.mlorenz.h5" => "densities",
                       "stationary_density.c0.h.tsv" => "records", "env.Manifest.toml" => "environments",
                       "figures.sources.c1.h.txt" => "figures", "figures.table_bounds.c1.h.tex" => "figures",
                       "figures.density_lorenz_a77-256_d12.c1.h.pdf" => "figures")
@@ -65,4 +70,6 @@
     @test_throws ErrorException deposit_plan(src; data, images)
     @test_throws ArgumentError deposit_plan(joinpath(images, "figures.table_bounds.c1.h.tex"); data, images)
     @test_throws ArgumentError deposit_plan(src; data, images, blocks = :some)
+    bad = put(images, "figures.sources.c2.h.txt", "lorenz (a = 77//256): density d.lorenz.jls, powers powers.lorenz.tsv\n")
+    @test_throws ErrorException deposit_plan(bad; data, images)
 end

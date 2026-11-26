@@ -12,7 +12,7 @@ using CertifiedRecords: read_record
 const DATAVERSE_FILE_LIMIT = 2_684_354_560
 
 const _SOURCES_NAME = r"^(?<script>[^.]+)\.sources\.(?<commit>[0-9a-z]+)\.(?<host>[^.]+)\.txt$"
-const _SOURCES_ROW = r"^(?<map>\w+) a = (?<a>\S+): density (?<density>\S+), powers (?<powers>\S+)$"
+const _SOURCES_ROW = r"^(?<map>\S+) a = (?<a>\S+): density (?<density>\S+), powers (?<powers>\S+)$"
 const _SOURCES_SHA = r"^\s+sha256 (?<sha>[0-9a-f]{64})  (?<file>\S+)$"
 
 """
@@ -57,7 +57,14 @@ function deposit_plan(sources::AbstractString; data::AbstractString, images::Abs
             isempty(rows) && error("$(basename(sources)): a sha256 line before any row")
             f = String(s[:file])
             sha[f] = String(s[:sha])
-            endswith(f, ".h5") && (rows[end] = merge(rows[end], (; hdf5 = f)))
+            if endswith(f, ".h5")
+                isempty(rows[end].hdf5) || error("$(basename(sources)): a second HDF5 file for the row of $(rows[end].density)")
+                rows[end] = merge(rows[end], (; hdf5 = f))
+            elseif f != rows[end].density
+                error("$(basename(sources)): the hash of $f under the row of $(rows[end].density)")
+            end
+        elseif !(isempty(strip(line)) || startswith(line, "#"))
+            error("$(basename(sources)): a line that is neither a record, a header, a row nor a hash: $line")
         end
     end
     isempty(rows) && error("$(basename(sources)) names no density")

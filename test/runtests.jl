@@ -46,5 +46,6 @@ using Test
     include("test_l1_error.jl")
     include("test_norms_of_powers.jl")
     include("test_archive.jl")
+    include("test_deposit.jl")
 
 end

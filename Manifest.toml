@@ -2,7 +2,7 @@
 
 julia_version = "1.13.3"
 manifest_format = "2.1"
-project_hash = "44daa1141e41a98f65559e1c9f13eaa0031cd452"
+project_hash = "766b297bba8713d1acf6ac53e92682d53fde7f0d"
 
 [[deps.AbstractFFTs]]
 deps = ["LinearAlgebra"]
@@ -753,6 +753,12 @@ deps = ["BallArithmetic", "CertifiedRecords", "DataStructures", "ForwardDiff", "
 path = "."
 uuid = "2cbaba54-1f7c-42c5-a2df-29a8df60aaff"
 version = "0.0.1-DEV"
+
+    [deps.RigorousUlam2D.extensions]
+    RigorousUlam2DHDF5Ext = "HDF5"
+
+    [deps.RigorousUlam2D.weakdeps]
+    HDF5 = "f67ccb44-e63f-5c2f-98bd-6dc0ccc4ba2f"
 
 [[deps.RoundingEmulator]]
 git-tree-sha1 = "40b9edad2e5287e05bd413a38f61a8ff55b9557b"

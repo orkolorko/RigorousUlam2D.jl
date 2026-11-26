@@ -45,5 +45,6 @@ using Test
     include("test_noisy_operator.jl")
     include("test_l1_error.jl")
     include("test_norms_of_powers.jl")
+    include("test_archive.jl")
 
 end

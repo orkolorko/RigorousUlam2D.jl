@@ -16,7 +16,15 @@
 #       sweep, the transfer's Σ, ε₁ and ε₂ of f̃ at DEPTH, and the bounds at DEPTH by the direct
 #       and the swapped route; every number an upper bound written upward at 3 digits;
 #   figures.sources.<commit>.<host>.txt
-#       the record files every number and figure was read from, with their headers.
+#       the record files every number and figure was read from, with their headers, and for
+#       each (map, a) the density record and the HDF5 copy below with their SHA-256;
+#
+# and into ~/ResearchData/RigorousUlam2D_Data/data:
+#
+#   figures.density_<map>_a<p>-<q>_d<depth>.<commit>.<host>.h5
+#       the cell masses of f̃, bit for bit those of the stationary_density record, with the
+#       metadata needed to read them without this package (`write_density_hdf5`): the archival
+#       copy for the data repository.
 #
 # The density in a figure is the computed f̃ (cell masses / cell area), not the stationary density
 # itself; the bound in the title is the certified distance between the two.  Rendering is headless.
@@ -26,7 +34,7 @@
 #   julia --project=paper paper/figures.jl
 
 ENV["GKSwstype"] = "100"
-using RigorousUlam2D, CertifiedRecords, CairoMakie, Printf
+using RigorousUlam2D, CertifiedRecords, CairoMakie, Printf, HDF5
 using IntervalArithmetic: inf, sup
 import Serialization
 
@@ -90,9 +98,15 @@ for m in ("lorenz", "henon"), a in ("77//256", "51//256", "51//512", "13//256")
 end
 
 name(m) = m == "henon" ? "Hénon" : "Lorenz"
+hdf5 = Dict{Any,String}()
 for r in rows
-    f = Serialization.deserialize(joinpath(DATA, r.density)).density
+    rec = Serialization.deserialize(joinpath(DATA, r.density))
+    f = rec.density
     k = 2^DEPTH; s = 2^(DEPTH - SHOW); sys = ulam_system(r.map)
+    h5 = joinpath(DATA, "$SCRIPT.density_$(r.map)_a$(replace(r.a, "//" => "-"))_d$DEPTH.$commit.$host.h5")
+    isfile(h5) || write_density_hdf5(h5, rec; source = r.density,
+        domain = [inf(sys.domain[1]), sup(sys.domain[1]), inf(sys.domain[2]), sup(sys.domain[2])])
+    hdf5[r] = h5
     M = reshape(f, k, k)                                  # M[iy, ix], grid order
     B = [sum(@view M[(j-1)*s+1:j*s, (i-1)*s+1:i*s]) for j in 1:2^SHOW, i in 1:2^SHOW]
     side = sup(sys.domain[1]) - inf(sys.domain[1])
@@ -126,6 +140,8 @@ open(out("sources", "txt"), "w") do io
     end
     for r in rows
         println(io, "$(r.map) a = $(r.a): density $(r.density), powers $(r.powers)")
+        println(io, "    sha256 $(file_sha256(joinpath(DATA, r.density)))  $(r.density)")
+        println(io, "    sha256 $(file_sha256(hdf5[r]))  $(basename(hdf5[r]))")
     end
 end
 println("wrote $(length(rows)) figures, the table and the sources in $IMAGES")

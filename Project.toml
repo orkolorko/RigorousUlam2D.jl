@@ -17,6 +17,12 @@ SHA = "ea8e919c-243c-51af-8825-aaa63cd721ce"
 Serialization = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
 SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 
+[weakdeps]
+HDF5 = "f67ccb44-e63f-5c2f-98bd-6dc0ccc4ba2f"
+
+[extensions]
+RigorousUlam2DHDF5Ext = "HDF5"
+
 [sources]
 BallArithmetic = {url = "https://github.com/JuliaBallArithmetic/BallArithmetic.jl.git", rev = "19c6924b3c5e0894029f075203fa27e7bc989310"}
 CertifiedRecords = {url = "https://github.com/orkolorko/CertifiedRecords.jl.git", rev = "bc2d2243f9b8e96ce91464a65293293741295f36"}
@@ -28,6 +34,7 @@ BallArithmetic = "0.4"
 CertifiedRecords = "0.0.1"
 DataStructures = "0.19.3"
 ForwardDiff = "1.2.1"
+HDF5 = "0.17"
 IntervalArithmetic = "0.22.36, 1"
 IntervalBoxes = "0.2.2, 0.3"
 RigorousInvariantMeasures = "0.3"

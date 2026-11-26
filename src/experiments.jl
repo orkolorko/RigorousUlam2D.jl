@@ -14,12 +14,16 @@ import SHA
 """
     ulam_system(name; kwargs...) -> (; name, F, domain, area)
 
-`henon_system` or `lorenz_system` by name (`"henon"`, `"lorenz"`), with `kwargs` passed on.
+`henon_system`, `lorenz_system` or `contracting_lorenz_system` by name (`"henon"`, `"lorenz"`,
+`"clorenz_rho<p>-<q>"` for `ρ = p//q`), with `kwargs` passed on.
 """
-ulam_system(name::AbstractString; kwargs...) =
-    name == "henon" ? henon_system(; kwargs...) :
-    name == "lorenz" ? lorenz_system(; kwargs...) :
-    throw(ArgumentError("unknown map $name: henon or lorenz"))
+function ulam_system(name::AbstractString; kwargs...)
+    name == "henon" && return henon_system(; kwargs...)
+    name == "lorenz" && return lorenz_system(; kwargs...)
+    m = match(r"^clorenz_rho([0-9]+)-([0-9]+)$", name)
+    m === nothing && throw(ArgumentError("unknown map $name: henon, lorenz or clorenz_rho<p>-<q>"))
+    return contracting_lorenz_system(; ρ = parse(Int, m.captures[1]) // parse(Int, m.captures[2]), kwargs...)
+end
 
 """
     block_file(dir, map, depth; level = 14, bisect = 30, xinv = true, d1 = 12, host = gethostname())

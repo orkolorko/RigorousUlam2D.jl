@@ -10,15 +10,18 @@ using Test
     @testset "$(name): the map at a point" for (name, sys, x, y, ref) in (
             ("henon", henon_system(), 0.1, 0.2, ((1 - 1.4 * 0.15^2 + 0.1) / 1.5, 0.09)),
             ("lorenz +", lorenz_system(), 0.09, 0.2, (0.5 - 1.3 * sqrt(0.09), 0.2 * 0.09^3 - 0.25)),
-            ("lorenz −", lorenz_system(), -0.09, 0.2, (1.3 * sqrt(0.09) - 0.5, -0.2 * 0.09^3 + 0.25)))
+            ("lorenz −", lorenz_system(), -0.09, 0.2, (1.3 * sqrt(0.09) - 0.5, -0.2 * 0.09^3 + 0.25)),
+            ("contracting +", contracting_lorenz_system(), 0.3, 0.2, (0.5 - 4 * 0.09, 0.2 * 0.027 - 0.25)),
+            ("contracting −", contracting_lorenz_system(ρ = 18 // 5), -0.3, 0.2, (3.6 * 0.09 - 0.5, -0.2 * 0.027 + 0.25)))
         P = sys.F(interval(x), interval(y))
         @test all(abs(mid(P[i]) - ref[i]) <= 1e-14 && diam(P[i]) <= 1e-14 for i in 1:2)
     end
 
     @testset "$(sys.name): column sums bracket 1, routes agree" for sys in (henon_system(bisect = 16),
-                                                                          lorenz_system(bisect = 16))
-        plain = lorenz_system(bisect = 16, xinv = false)
-        plain = sys.name == "henon" ? henon_system(bisect = 16, xinv = false) : plain
+                                                                          lorenz_system(bisect = 16),
+                                                                          contracting_lorenz_system(bisect = 16),
+                                                                          contracting_lorenz_system(ρ = 18 // 5, bisect = 16))
+        plain = ulam_system(sys.name; bisect = 16, xinv = false)
         mats(area) = ulam_matrices(UlamTree(sys.F, sys.domain, 2, 5; enclosure_method = zeroth_order_enclosure,
                                             area), 2:4; level = 7)
         cut, bis = mats(sys.area), mats(plain.area)
@@ -30,4 +33,6 @@ using Test
             @test sum(c.U) <= sum(z.U)              # the areas tighten the counting enclosure
         end
     end
+    @test ulam_system("clorenz_rho18-5").name == "clorenz_rho18-5"
+    @test_throws ArgumentError contracting_lorenz_system(ρ = 5 // 1)
 end

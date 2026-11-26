@@ -28,7 +28,7 @@ for each sign of `x` for Lorenz, so the crossing enclosures of the two ends of a
 nest (see `_cut!`).
 """
 
-export henon_system, lorenz_system
+export henon_system, lorenz_system, contracting_lorenz_system
 
 const _A_HENON = interval(7) / interval(5)
 const _B_HENON = interval(3) / interval(10)
@@ -95,4 +95,59 @@ function lorenz_system(; bisect::Int = 30, xinv::Bool = true)
     area = fibred_area(1, xcomp, yof; yint, xinv = xinv ? inv : nothing, bisect)
     domain = IntervalBox(interval(-0.5, 0.5), interval(-0.5, 0.5))
     return (; name = "lorenz", F, domain, area)
+end
+
+"""
+    contracting_lorenz_system(; ρ = 4//1, bisect = 30, xinv = true) -> (; name, F, domain, area)
+
+A contracting Lorenz map on `[-1/2, 1/2]²`, periodic: for `x > 0`,
+`F = (1/2 − ρ x², y x³ − 1/4)`, for `x < 0`, `F = (ρ x² − 1/2, −y |x|³ + 1/4)`.  The first component
+is the one-dimensional map `f` with `f′(x) = 2ρ|x|`, i.e. `K₂|x|^{s−1} ≤ f′ ≤ K₁|x|^{s−1}` with
+`s = 2` (condition (A0) of Metzger, Ann. IHP 17 (2000) 247, p. 249), negative Schwarzian derivative
+`−(3/2)(f″/f′)²`, and `f(0±) = ±1/2`; `ρ ≤ 4` keeps `f` in `[-1/2, 1/2]`.  The second component is
+that of `lorenz_system`.  `ρ` is a rational, entered as an interval quotient; the name of the
+system carries it (`clorenz_rho<p>-<q>`), so that its blocks and records are named apart.
+
+The x-only component is monotone on each sign of `x`, with crossings of `w` at
+`x = ((1/2 − w)/ρ)^{1/2}` and `x = −((w + 1/2)/ρ)^{1/2}` (empty where the radicand is negative);
+the fibre inverse and its integral are those of `lorenz_system`.
+"""
+function contracting_lorenz_system(; ρ::Rational = 4 // 1, bisect::Int = 30, xinv::Bool = true)
+    0 < ρ <= 4 || throw(ArgumentError("ρ = $ρ must be in (0, 4] for f to map [-1/2, 1/2] into itself"))
+    r = interval(numerator(ρ)) / interval(denominator(ρ))
+    c0, c1, h = interval(-0.25), interval(0.25), interval(0.5)
+    pos(x) = inf(x) >= 0
+    neg(x) = sup(x) <= 0
+    function F(x, y)
+        ax = abs(x)
+        Pp = (h - r * ax^2, y * ax^3 + c0)
+        Pn = (r * ax^2 - h, -y * ax^3 + c1)
+        pos(x) && return Pp
+        neg(x) && return Pn
+        return (hull(Pp[1], Pn[1]), hull(Pp[2], Pn[2]))
+    end
+    function xcomp(x)
+        ax = abs(x)
+        pos(x) && return h - r * ax^2
+        neg(x) && return r * ax^2 - h
+        return hull(h - r * ax^2, r * ax^2 - h)
+    end
+    function yof(x, w)
+        ax = abs(x)
+        pos(x) && return (w - c0) / ax^3
+        neg(x) && return (c1 - w) / ax^3
+        return hull((w - c0) / ax^3, (c1 - w) / ax^3)
+    end
+    yint(x, δ, w) = (pos(x) ? (w - c0) : -(c1 - w)) * δ * (interval(2) * x + δ) /
+                    (interval(2) * x^2 * (x + δ)^2)
+    # the radicand intersected with [0, ∞): empty where f takes no value w on that side
+    root(t) = (q = intersect_interval(t, interval(0.0, Inf)); isempty_interval(q) ? q : sqrt(q))
+    function inv(X, w)
+        pos(X) && return root((h - w) / r)
+        neg(X) && return -root((w + h) / r)
+        return hull(root((h - w) / r), -root((w + h) / r))
+    end
+    area = fibred_area(1, xcomp, yof; yint, xinv = xinv ? inv : nothing, bisect)
+    domain = IntervalBox(interval(-0.5, 0.5), interval(-0.5, 0.5))
+    return (; name = "clorenz_rho$(numerator(ρ))-$(denominator(ρ))", F, domain, area)
 end

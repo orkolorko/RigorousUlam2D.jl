@@ -175,12 +175,12 @@ for m in unique(r.map for r in rows if r.map != "henon")
     k = 2^DEPTH
     xs = range(inf(sys.domain[1]), sup(sys.domain[1]); length = k + 1)
     xc = (xs[1:end-1] .+ xs[2:end]) ./ 2
-    fig = Figure(size = (620, 360))
+    fig = Figure(size = (860, 360))
     ax = Axis(fig[1, 1]; xlabel = "x", ylabel = "density of the x-marginal", title = "$(name(m)), depth $DEPTH")
     for r in rs
         lines!(ax, xc, marg[r]; label = "ξ = $(xi(r.a)): ‖·‖₁ error ≤ $(tex(up3(r.errs); unicode = true))")
     end
-    axislegend(ax; position = :ct, labelsize = 10)
+    Legend(fig[1, 2], ax; labelsize = 10, framevisible = false)
     save(out("marginal_$(m)_d$DEPTH", "pdf"), fig)
 end
 

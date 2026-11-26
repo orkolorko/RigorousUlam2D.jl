@@ -49,11 +49,20 @@
     @test sort([basename(e.path) for e in p.excluded]) == ["blk_d12.jls", "blk_d8.jls"]
     @test all(e -> e.directory == "matrices" && startswith(e.reason, "not deposited"), p.excluded)
 
+    @test p.fine == [joinpath(data, "blk_d12.jls")]
+    put(data, "blocks_hdf5.blk_d12.L_lo.c9.h.h5", "lo")
+    put(data, "blocks_hdf5.blk_d12.U.c9.h.h5", "u")
+    @test count(f -> f.directory == "matrices", deposit_plan(src; data, images).files) == 0
     pc = deposit_plan(src; data, images, blocks = :coarse)
-    @test [basename(f.path) for f in pc.files if f.directory == "matrices"] == ["blk_d8.jls"]
+    @test sort([basename(f.path) for f in pc.files if f.directory == "matrices"]) ==
+          ["blk_d8.jls", "blocks_hdf5.blk_d12.L_lo.c9.h.h5", "blocks_hdf5.blk_d12.U.c9.h.h5"]
     @test [(basename(e.path), e.reason) for e in pc.excluded] == [("blk_d12.jls", "not deposited (blocks = :coarse)")]
     pa = deposit_plan(src; data, images, blocks = :all, maxsize = 1000)
-    @test [basename(f.path) for f in pa.files if f.directory == "matrices"] == ["blk_d8.jls"]
+    @test sort([basename(f.path) for f in pa.files if f.directory == "matrices"]) ==
+          ["blk_d8.jls", "blocks_hdf5.blk_d12.L_lo.c9.h.h5", "blocks_hdf5.blk_d12.U.c9.h.h5"]
+    put(data, "blocks_hdf5.blk_d12.U.c10.h.h5", "u again")
+    @test_throws ErrorException deposit_plan(src; data, images, blocks = :coarse)
+    rm(joinpath(data, "blocks_hdf5.blk_d12.U.c10.h.h5"))
     @test [basename(e.path) for e in pa.excluded] == ["blk_d12.jls"]
     @test startswith(only(pa.excluded).reason, "1900 bytes, above the limit")
 

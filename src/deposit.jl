@@ -4,12 +4,15 @@ sources file that `paper/figures.jl` writes beside the table and the figures, an
 manifest of them.  The deposit itself is made by `paper/dataverse.jl`.
 """
 
-export DATAVERSE_FILE_LIMIT, deposit_plan, write_manifest
+export DATAVERSE_FILE_LIMIT, BLOCK_HDF5_SCRIPT, deposit_plan, write_manifest
 
 using CertifiedRecords: read_record
 
 "The largest file, in bytes, that Harvard Dataverse accepts by upload: 2.5 GiB."
 const DATAVERSE_FILE_LIMIT = 2_684_354_560
+
+"The script name that `paper/blocks_hdf5.jl` writes its files under: `<script>.<block>.<L_lo|U>.<commit>.<host>.h5`."
+const BLOCK_HDF5_SCRIPT = "blocks_hdf5"
 
 const _SOURCES_NAME = r"^(?<script>[^.]+)\.sources\.(?<commit>[0-9a-z]+)\.(?<host>[^.]+)\.txt$"
 const _SOURCES_ROW = r"^(?<map>\S+) a = (?<a>\S+): density (?<density>\S+), powers (?<powers>\S+)$"
@@ -17,7 +20,7 @@ const _SOURCES_SHA = r"^\s+sha256 (?<sha>[0-9a-f]{64})  (?<file>\S+)$"
 
 """
     deposit_plan(sources; data, images, blocks = :none, maxsize = DATAVERSE_FILE_LIMIT)
-        -> (; commit, host, rows, files, excluded)
+        -> (; commit, host, rows, files, excluded, fine)
 
 The files a deposit of the results named by `sources` holds, where `sources` is the path of a
 `figures.sources.<commit>.<host>.txt` written by `paper/figures.jl`, `data` the directory of the
@@ -35,6 +38,12 @@ description)`, `directory` the folder of the deposit it goes in:
 - `matrices`, only when `blocks` is `:coarse` or `:all`: the deterministic block a record of norms
   of powers names in its header (`blockfile = `), and with `:all` also the block a density row of
   the stationary-density record names, the one the density of the table was computed from.
+
+Unless `blocks = :none`, the HDF5 copies of the block a density was computed from go to `matrices` (with
+`:coarse` in place of the block itself), the files
+`blocks_hdf5.<block>.L_lo.*.h5` and `blocks_hdf5.<block>.U.*.h5` of `data` that `paper/blocks_hdf5.jl`
+writes (`write_block_hdf5`), when they exist; an error if there is more than one of either.  `fine` holds
+the paths of the blocks the densities were computed from.
 
 A file larger than `maxsize` bytes goes to `excluded`, as `(; path, directory, reason)`, instead of
 `files`, and so does a block that `blocks` leaves out: the deposit can then name it.  An error if a file named is missing, or if a file the sources file gives a SHA-256 for
@@ -69,7 +78,7 @@ function deposit_plan(sources::AbstractString; data::AbstractString, images::Abs
     end
     isempty(rows) && error("$(basename(sources)) names no density")
 
-    files, excluded, seen = NamedTuple[], NamedTuple[], Set{String}()
+    files, excluded, seen, fine = NamedTuple[], NamedTuple[], Set{String}(), String[]
     function add!(dir, name, dirlabel, description; omit = "")
         name in seen && return
         push!(seen, name)
@@ -116,10 +125,20 @@ function deposit_plan(sources::AbstractString; data::AbstractString, images::Abs
                               "deterministic block L_lo <= L <= L_lo + U read by $name";
                               omit = blocks == :none ? "not deposited (blocks = :none)" : "")
         for x in rs, r in rows
-            get(x, "density_file", "") == r.density && haskey(x, "blockfile") &&
-                add!(data, x["blockfile"], "matrices",
-                     "deterministic block L_lo <= L <= L_lo + U the density $(r.density) was computed from";
-                     omit = blocks == :all ? "" : "not deposited (blocks = :$blocks)")
+            (get(x, "density_file", "") == r.density && haskey(x, "blockfile")) || continue
+            b = x["blockfile"]
+            b in fine || push!(fine, b)
+            add!(data, b, "matrices",
+                 "deterministic block L_lo <= L <= L_lo + U the density $(r.density) was computed from";
+                 omit = blocks == :all ? "" : "not deposited (blocks = :$blocks)")
+            blocks == :none && continue
+            stem = replace(b, r"\.jls$" => "")
+            for field in ("L_lo", "U")
+                hs = filter(f -> startswith(f, "$BLOCK_HDF5_SCRIPT.$stem.$field.") && endswith(f, ".h5"), readdir(data))
+                length(hs) > 1 && error("more than one HDF5 copy of $field of $b in $data: $(join(hs, ", "))")
+                isempty(hs) || add!(data, only(hs), "matrices",
+                    "$field of the block $b the density $(r.density) was computed from, in grid order (HDF5)")
+            end
         end
     end
 
@@ -128,7 +147,7 @@ function deposit_plan(sources::AbstractString; data::AbstractString, images::Abs
         startswith(f, "$script.") && (endswith(f, ".$commit.$host.pdf") || endswith(f, ".$commit.$host.tex")) || continue
         add!(images, f, "figures", endswith(f, ".tex") ? "table of bounds (LaTeX)" : "figure of a computed density")
     end
-    return (; commit, host, rows, files, excluded)
+    return (; commit, host, rows, files, excluded, fine = [joinpath(data, b) for b in fine])
 end
 
 """

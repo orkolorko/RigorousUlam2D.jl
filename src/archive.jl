@@ -27,3 +27,29 @@ and the attributes `map`, `depth`, `half_width` (the noise half-width as the str
 `using HDF5`.  Refuses to overwrite an existing file.
 """
 function write_density_hdf5 end
+
+export write_block_hdf5, BLOCK_HDF5_FORMAT
+
+"The layout of a sparse matrix in an archival block file, written into every such file as an attribute."
+const BLOCK_HDF5_FORMAT = "compressed sparse columns, 1-based: the nonzero entries of column j are " *
+    "nzval[colptr[j]:colptr[j+1]-1], in the rows rowval[colptr[j]:colptr[j+1]-1]; rows and columns are " *
+    "the cells of the grid, the cell in column ix and row iy being index (ix - 1) * 2^depth + iy, as in " *
+    "the density files"
+
+"""
+    write_block_hdf5(path, block, field; perm, source = "", deflate = 6) -> path
+
+Write one matrix of a deterministic block of `bench/tree_deepen.jl` (the named tuple with fields
+`L_lo` and `U`, `L_lo ≤ L ≤ L_lo + U` entrywise, indexed as `build_uniform_partition`), the field
+`field` (`:L_lo` or `:U`), to the HDF5 file `path`, permuted to grid order by `perm`
+([`grid_order`](@ref) of the map's domain at the block's depth): the matrix written is
+`block[field][perm, perm]`, the one [`noisy_ulam_operator`](@ref) multiplies by, with its entries
+unchanged.  It is stored as the datasets `colptr`, `rowval` (`Int64`) and `nzval` (`Float64`),
+chunked and compressed with HDF5's shuffle and deflate filters at level `deflate`, which every HDF5
+library reads; the attributes are `matrix` (the field), `size`, `nnz`, `format`
+([`BLOCK_HDF5_FORMAT`](@ref)), `enclosure`, `source` (the name of the block file), and the block's
+`map`, `depth`, `store_level`, `store_maxlevel`, `tag`, `levels`, `d0`, `d1`, `host`, `script`,
+`julia`, `threads`, `commits`, `header` and `environment`, those it has, as strings or integers.
+Requires `using HDF5`.  Refuses to overwrite an existing file.
+"""
+function write_block_hdf5 end

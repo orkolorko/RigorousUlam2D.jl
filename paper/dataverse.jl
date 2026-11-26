@@ -101,7 +101,11 @@ matrices = BLOCKS == :none ? "" :
     "`matrices/` holds the deterministic blocks the records name: Julia `Serialization` files of a named " *
     "tuple whose fields `L_lo` and `U` are sparse matrices with `L_lo ≤ L ≤ L_lo + U` entrywise, `L` the Ulam " *
     "matrix of the map on the grid of the depth in the file name, indexed as `build_uniform_partition` of " *
-    "RigorousUlam2D.jl orders the cells.\n"
+    "RigorousUlam2D.jl orders the cells.  The blocks the densities were computed from are given instead as " *
+    "HDF5 files, one per matrix, `blocks_hdf5.<block>.<L_lo|U>.<commit>.<host>.h5`: the datasets `colptr`, " *
+    "`rowval` and `nzval` of the matrix in compressed sparse columns, 1-based, rows and columns in the order " *
+    "of the density files, compressed with HDF5's shuffle and deflate filters; the entries are those of the " *
+    "block, unchanged, and the attributes give the format, the source block and its metadata.\n"
 readme = read(joinpath(@__DIR__, "dataverse_README.md"), String)
 readme = replace(readme, "<!-- MATRICES -->\n" => matrices, "<!-- GENERATED -->\n" => String(take!(gen)))
 write(joinpath(out, "README.md"), readme)

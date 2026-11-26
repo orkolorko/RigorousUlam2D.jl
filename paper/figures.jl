@@ -11,6 +11,10 @@
 #       cells for display (SHOW = 9: 512 × 512 pixels) and divided by the block area; the title
 #       gives the bound ‖f_ξ − f̃‖₁ ≤ b, b the smallest err_swapped on record for that depth over
 #       the coarse depths, written upward at 3 digits (fmt_upper);
+#   figures.marginal_<map>_d<depth>.<commit>.<host>.pdf
+#       for each Lorenz map, the density of the x-marginal of f̃ (x_marginal) at every noise size
+#       with a finite bound, the bound of the density in the legend: integrating out y is an L¹
+#       contraction, so it bounds the marginal too;
 #   figures.table_bounds.<commit>.<host>.tex
 #       a LaTeX tabular, one row per (map, a): the coarse depth of the best bound, Σ_V of that
 #       sweep, the transfer's Σ, ε₁ and ε₂ of f̃ at DEPTH, and the bounds at DEPTH by the direct
@@ -104,6 +108,10 @@ end
 
 name(m) = m == "henon" ? "Hénon" : m == "lorenz" ? "Lorenz-like" : startswith(m, "mlorenz") ? "Contracting Lorenz" : m
 hdf5 = Dict{Any,String}()
+marg = Dict{Any,Vector{Float64}}()
+
+"The side ξ = 2a of the noise square, as \"p/q\", from the half-width a of the records (\"p//q\")."
+xi(a) = (q = 2 * parse(Rational{Int}, replace(a, "//" => "/")); "$(numerator(q))/$(denominator(q))")
 
 # An HDF5 copy already on record for this density: a file `<stem>*.h5` in DATA whose attribute
 # `source` names the same density record and whose masses equal the record's, bit for bit; the
@@ -126,7 +134,7 @@ function existing_hdf5(stem, source, masses)
     paths = [joinpath(DATA, n) for n in readdir(DATA) if startswith(n, stem) && endswith(n, ".h5")]
     for path in sort(paths; by = p -> (basename(p) in CITED_HDF5 ? 0 : 1, mtime(p)))
         same = h5open(path, "r") do io
-            read(attributes(io)["source"]) == source && read(io["masses"]) == masses
+            read(HDF5.attributes(io)["source"]) == source && read(io["masses"]) == masses
         end
         same && return path
     end
@@ -145,6 +153,7 @@ for r in rows
     end
     hdf5[r] = h5
     M = reshape(f, k, k)                                  # M[iy, ix], grid order
+    marg[r] = x_marginal(f, k, (sup(sys.domain[1]) - inf(sys.domain[1])) / k)
     B = [sum(@view M[(j-1)*s+1:j*s, (i-1)*s+1:i*s]) for j in 1:2^SHOW, i in 1:2^SHOW]
     side = sup(sys.domain[1]) - inf(sys.domain[1])
     B ./= (s * side / k)^2                                # mass over block area: the density
@@ -152,20 +161,37 @@ for r in rows
     ys = range(inf(sys.domain[2]), sup(sys.domain[2]); length = 2^SHOW)
     fig = Figure(size = (520, 460))
     ax = Axis(fig[1, 1]; aspect = DataAspect(), xlabel = "x", ylabel = "y",
-              title = "$(name(r.map)), a = $(replace(r.a, "//" => "/")), depth $DEPTH: ‖f_ξ − f̃‖₁ ≤ $(tex(up3(r.errs); unicode = true))")
+              title = "$(name(r.map)), ξ = $(xi(r.a)), depth $DEPTH: ‖f_ξ − f̃‖₁ ≤ $(tex(up3(r.errs); unicode = true))")
     hm = heatmap!(ax, xs, ys, permutedims(B); colormap = :viridis)
     Colorbar(fig[1, 2], hm)
     save(out("density_$(r.map)_a$(replace(r.a, "//" => "-"))_d$DEPTH", "pdf"), fig)
+end
+
+# The x-marginals of the Lorenz maps, one figure per map with a curve per noise size; integrating
+# out y is an L¹ contraction, so the bound of each density bounds its marginal too.
+for m in unique(r.map for r in rows if r.map != "henon")
+    rs = filter(r -> r.map == m, rows)
+    sys = ulam_system(m)
+    k = 2^DEPTH
+    xs = range(inf(sys.domain[1]), sup(sys.domain[1]); length = k + 1)
+    xc = (xs[1:end-1] .+ xs[2:end]) ./ 2
+    fig = Figure(size = (620, 360))
+    ax = Axis(fig[1, 1]; xlabel = "x", ylabel = "density of the x-marginal", title = "$(name(m)), depth $DEPTH")
+    for r in rs
+        lines!(ax, xc, marg[r]; label = "ξ = $(xi(r.a)): ‖·‖₁ error ≤ $(tex(up3(r.errs); unicode = true))")
+    end
+    axislegend(ax; position = :ct, labelsize = 10)
+    save(out("marginal_$(m)_d$DEPTH", "pdf"), fig)
 end
 
 open(out("table_bounds", "tex"), "w") do io
     println(io, "% $SCRIPT.jl of RigorousUlam2D.jl at $commit on $host; every number an upper bound written upward")
     println(io, "% (CertifiedRecords.fmt_upper, 3 digits); sources in $(basename(out("sources", "txt")))")
     println(io, "\\begin{tabular}{llrrrrrrr}")
-    println(io, "map & \$a\$ & coarse depth & \$\\Sigma_V\$ & \$\\Sigma\$ & \$\\varepsilon_1\$ & \$\\varepsilon_2\$ & direct & swapped \\\\ \\hline")
+    println(io, "map & \$\\xi\$ & coarse depth & \$\\Sigma_V\$ & \$\\Sigma\$ & \$\\varepsilon_1\$ & \$\\varepsilon_2\$ & direct & swapped \\\\ \\hline")
     for r in rows
         @printf(io, "%s & \$%s\$ & %s & \$%s\$ & \$%s\$ & \$%s\$ & \$%s\$ & \$%s\$ & \$%s\$ \\\\\n", name(r.map),
-                replace(r.a, "//" => "/"), r.coarse, tex(up3(r.SigmaV)), tex(up3(r.Sigma)), tex(up3(r.eps1)),
+                xi(r.a), r.coarse, tex(up3(r.SigmaV)), tex(up3(r.Sigma)), tex(up3(r.eps1)),
                 tex(up3(r.eps2)), tex(up3(r.err)), tex(up3(r.errs)))
     end
     println(io, "\\end{tabular}")

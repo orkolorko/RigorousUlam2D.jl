@@ -43,12 +43,25 @@ enclosure `L_lo ≤ L ≤ L_lo + U`.  The coordinate variations of the computed 
 are `coordinate_variations`.  Every constant is rounded upward.
 """
 
-export coordinate_variations, ulam_fixed_point, fixed_point_residual, fixed_point_distance,
+export coordinate_variations, x_marginal, ulam_fixed_point, fixed_point_residual, fixed_point_distance,
     sigma_from_norms, defect_apriori, coarse_fine_norms, swapped_error
 
 _sum_up(v) = foldl(add_up, v; init = 0.0)
 _sum_down(v) = -foldl((s, x) -> add_up(s, -x), v; init = 0.0)
 _absdiff_up(a, b) = max(sub_up(a, b), sub_up(b, a))
+
+"""
+    x_marginal(m, k, h) -> Vector{Float64}
+
+The density of the first marginal of the function constant on the cells with masses `m` (grid
+order, `k × k` cells of side `h`, `M[iy, ix]`): entry `ix` is the mass of column `ix` divided by its
+width `h`.  Integrating out `y` is a contraction of `L¹`, so a bound on `‖f − f̃‖₁` bounds the `L¹`
+distance of the marginals.  The sums are in floating point: a value for display, not a bound.
+"""
+function x_marginal(m::AbstractVector{Float64}, k::Int, h::Float64)
+    length(m) == k * k || throw(DimensionMismatch("expected $(k * k) masses, got $(length(m))"))
+    return vec(sum(reshape(m, k, k); dims = 1)) ./ h
+end
 
 """
     coordinate_variations(m, k, h) -> (; var1, var2)

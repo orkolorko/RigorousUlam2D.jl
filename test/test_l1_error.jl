@@ -173,3 +173,13 @@ const RIMl = RigorousInvariantMeasures
         end
     end
 end
+
+@testset "x_marginal" begin
+    k, h = 4, 0.25
+    M = reshape(collect(1.0:16.0), k, k) ./ 136                 # M[iy, ix]
+    xm = x_marginal(vec(M), k, h)
+    @test length(xm) == k
+    @test xm ≈ [sum(M[:, ix]) / h for ix in 1:k]
+    @test sum(xm) * h ≈ 1                                      # a probability density in x
+    @test_throws DimensionMismatch x_marginal(ones(15), k, h)
+end

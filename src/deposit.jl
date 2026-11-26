@@ -145,7 +145,8 @@ function deposit_plan(sources::AbstractString; data::AbstractString, images::Abs
     add!(dirname(sources), basename(sources), "figures", "the records each number and figure was read from")
     for f in sort(readdir(images))
         startswith(f, "$script.") && (endswith(f, ".$commit.$host.pdf") || endswith(f, ".$commit.$host.tex")) || continue
-        add!(images, f, "figures", endswith(f, ".tex") ? "table of bounds (LaTeX)" : "figure of a computed density")
+        add!(images, f, "figures", endswith(f, ".tex") ? "table of bounds (LaTeX)" :
+            occursin(".marginal_", f) ? "figure of x-marginals of computed densities" : "figure of a computed density")
     end
     return (; commit, host, rows, files, excluded, fine = [joinpath(data, b) for b in fine])
 end

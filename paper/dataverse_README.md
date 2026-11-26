@@ -56,7 +56,7 @@ its column `environment`.  The records written before that column existed name o
 the environment of such a run is the `Manifest.toml` of the package at that commit.
 
 `figures/` holds the table of bounds as LaTeX (`figures.table_bounds.*.tex`), the figures of the
-densities (`figures.density_*.pdf`) and the list of the records the table and the figures were
+densities (`figures.density_*.pdf`), the figures of their x-marginals (`figures.marginal_*.pdf`) and the list of the records the table and the figures were
 read from (`figures.sources.*.txt`), with the SHA-256 of every density file.
 
 <!-- MATRICES -->

@@ -30,7 +30,8 @@
 # The density in a figure is the computed f̃ (cell masses / cell area), not the stationary density
 # itself; the bound in the title is the certified distance between the two.  Rendering is headless.
 #
-# Env: DEPTH (12), SHOW (9), HOSTS (hosts whose records are read, "ibis,albatross"), MAPS
+# Env: DEPTH (12), SHOW (9), HDF5_FROM (the commit of the sources file whose HDF5 copies are
+# preferred; default the newest), HOSTS (hosts whose records are read, "ibis,albatross"), MAPS
 # ("lorenz,mlorenz_rho18-5,henon").
 #
 #   julia --project=paper paper/figures.jl
@@ -108,9 +109,22 @@ hdf5 = Dict{Any,String}()
 # `source` names the same density record and whose masses equal the record's, bit for bit; the
 # oldest such file.  Reusing it keeps the names (and hashes) cited by the paper and the
 # deposit stable across reruns, which would otherwise write a copy named after each commit.
+# Copies named in an earlier sources file are preferred, so that the names cited elsewhere stay
+# put: the file figures.sources.<HDF5_FROM>.*.txt when HDF5_FROM is set, else the newest one in
+# IMAGES; among the other matches, the oldest file.
+function cited_hdf5()
+    from = get(ENV, "HDF5_FROM", "")
+    files = filter(n -> startswith(n, "$SCRIPT.sources.") && endswith(n, ".txt") &&
+                        (isempty(from) || startswith(n, "$SCRIPT.sources.$from.")), readdir(IMAGES))
+    isempty(files) && return Set{String}()
+    newest = argmax(n -> mtime(joinpath(IMAGES, n)), files)
+    return Set(m.captures[1] for m in eachmatch(r"sha256 \w+  (\S+\.h5)", read(joinpath(IMAGES, newest), String)))
+end
+const CITED_HDF5 = cited_hdf5()
+
 function existing_hdf5(stem, source, masses)
     paths = [joinpath(DATA, n) for n in readdir(DATA) if startswith(n, stem) && endswith(n, ".h5")]
-    for path in sort(paths; by = mtime)
+    for path in sort(paths; by = p -> (basename(p) in CITED_HDF5 ? 0 : 1, mtime(p)))
         same = h5open(path, "r") do io
             read(attributes(io)["source"]) == source && read(io["masses"]) == masses
         end

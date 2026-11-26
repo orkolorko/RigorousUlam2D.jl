@@ -1,7 +1,7 @@
 # Certified stationary densities of random Hénon and Lorenz-like maps
 
-Data for M. J. Pacifico, R. Bioni Liberalquino, I. Nisoli, *On the existence, regularity and
-rigorous computation of stationary densities of systems with additive BV noise*: the computed
+Data for M. J. Pacifico, R. Bioni Liberalquino, I. Nisoli, *Stationary densities of random maps
+with additive BV noise: existence, regularity and certified Ulam approximation*: the computed
 stationary densities `f̃` of Theorem E, one for each row of its Table 1, and the records every
 number of that table was read from.  The code that wrote every file is RigorousUlam2D.jl,
 https://github.com/orkolorko/RigorousUlam2D.jl, at the commits named below.

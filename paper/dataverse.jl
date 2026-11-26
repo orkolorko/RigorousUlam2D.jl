@@ -135,8 +135,8 @@ fields = Any[
         ["random dynamical systems", "stationary density", "Ulam method", "transfer operator",
          "computer-assisted proof", "Hénon map", "contracting Lorenz map", "interval arithmetic"]]),
     comp("publication", [Dict("publicationCitation" => prim("publicationCitation",
-        "Pacifico, M. J., Bioni Liberalquino, R., Nisoli, I.: On the existence, regularity and rigorous " *
-        "computation of stationary densities of systems with additive BV noise (in preparation)"))]),
+        "Pacifico, M. J., Bioni Liberalquino, R., Nisoli, I.: Stationary densities of random maps with " *
+        "additive BV noise: existence, regularity and certified Ulam approximation (in preparation)"))]),
 ]
 meta = Dict("datasetVersion" => Dict(
     "license" => Dict("name" => "CC0 1.0", "uri" => "http://creativecommons.org/publicdomain/zero/1.0"),

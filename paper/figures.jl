@@ -164,7 +164,7 @@ for r in rows
     fig = Figure(size = (520, 460))
     ax = Axis(fig[1, 1]; aspect = DataAspect(), xlabel = "x", ylabel = "y",
               title = "$(name(r.map)), ξ = $(xi(r.a)), depth $DEPTH: ‖f_ξ − f̃‖₁ ≤ $(tex(up3(r.errs); unicode = true))")
-    hm = heatmap!(ax, xs, ys, permutedims(B); colormap = :viridis)
+    hm = heatmap!(ax, xs, ys, permutedims(B); colormap = :viridis, rasterize = 2)
     Colorbar(fig[1, 2], hm)
     save(out("density_$(r.map)_a$(replace(r.a, "//" => "-"))_d$DEPTH", "pdf"), fig)
 end

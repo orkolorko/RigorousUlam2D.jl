@@ -54,7 +54,7 @@ let sys = ulam_system("henon"), p = (0.1, 0.1)
     end
     fig = Figure(size = (480, 460))
     ax = Axis(fig[1, 1]; aspect = DataAspect(), xlabel = "x", ylabel = "y", limits = (-1, 1, -1, 1))
-    scatter!(ax, xs, ys; markersize = 0.6, color = :black)
+    scatter!(ax, xs, ys; markersize = 0.6, color = :black, rasterize = 3)
     save(out("henon_attractor"), fig)
 end
 
@@ -72,7 +72,7 @@ for m in MAPS
     ax2 = Axis(fig[1, 2]; aspect = DataAspect(), xlabel = "x", ylabel = "y", limits = (lo, hi, lo, hi))
     for y in range(inf(sys.domain[2]), sup(sys.domain[2]); length = S)
         P = [image_point(sys, x, y) for x in xs]
-        scatter!(ax2, first.(P), last.(P); markersize = 0.8, color = :black)
+        scatter!(ax2, first.(P), last.(P); markersize = 0.8, color = :black, rasterize = 3)
     end
     save(out("$(m)_map"), fig)
 end

@@ -102,9 +102,12 @@ end
 
 A contracting Lorenz map on `[-1/2, 1/2]²`, periodic: for `x > 0`,
 `F = (1/2 − ρ x², y x³ − 1/4)`, for `x < 0`, `F = (ρ x² − 1/2, −y |x|³ + 1/4)`.  The first component
-is the one-dimensional map `f` with `f′(x) = 2ρ|x|`, i.e. `K₂|x|^{s−1} ≤ f′ ≤ K₁|x|^{s−1}` with
-`s = 2` (condition (A0) of Metzger, Ann. IHP 17 (2000) 247, p. 249), negative Schwarzian derivative
-`−(3/2)(f″/f′)²`, and `f(0±) = ±1/2`; `ρ ≤ 4` keeps `f` in `[-1/2, 1/2]`.  The second component is
+is the one-dimensional map `f` with `f′(x) = −2ρ|x|`: it decreases on both branches, with
+`f(0±) = ±1/2`, and `ρ ≤ 4` keeps it in `[-1/2, 1/2]`.  It is `f = R ∘ ℓ` with `R(x) = −x` and
+`ℓ(x) = ρx² − 1/2` (`x > 0`), `1/2 − ρx²` (`x < 0`), which is increasing with
+`ℓ′(x) = 2ρ|x|`, i.e. `K₂|x|^{s−1} ≤ ℓ′ ≤ K₁|x|^{s−1}` with `s = 2`, and has negative Schwarzian
+derivative `−(3/2)(ℓ″/ℓ′)²`: condition (A0) of Metzger, Ann. IHP 17 (2000) 247, p. 249, is a
+condition on `ℓ`, not on `f`, whose orientation is reversed (as is that of `lorenz_system`).  The second component is
 that of `lorenz_system`.  `ρ` is a rational, entered as an interval quotient; the name of the
 system carries it (`clorenz_rho<p>-<q>`), so that its blocks and records are named apart.
 

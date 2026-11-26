@@ -8,19 +8,22 @@ https://github.com/orkolorko/RigorousUlam2D.jl, at the commits named below.
 
 ## The systems
 
-Two maps of the torus, each composed with uniform noise on the square `[-a, a]²` (periodic):
+Three maps of the torus, each composed with uniform noise on the square `[-a, a]²` (periodic);
+the files name each by its key:
 
-- Hénon: `H(X, Y) = (1 − (7/5) X² + Y, (3/10) X)` in the coordinates `X = 3x/2`, `Y = y/2`, on the
-  domain `[-1, 1]²`;
-- contracting Lorenz: on `[-1/2, 1/2]²`, for `x > 0`, `F(x, y) = (1/2 − (13/10) x^(1/2), y x³ − 1/4)`,
-  for `x < 0`, `F(x, y) = ((13/10) |x|^(1/2) − 1/2, −y |x|³ + 1/4)`.
+- `henon`: `H(X, Y) = (1 − (7/5) X² + Y, (3/10) X)` in the coordinates `X = 3x/2`, `Y = y/2`, on
+  the domain `[-1, 1]²`;
+- `lorenz`: on `[-1/2, 1/2]²`, for `x > 0`, `F(x, y) = (1/2 − (13/10) x^(1/2), y x³ − 1/4)`, for
+  `x < 0`, `F(x, y) = ((13/10) |x|^(1/2) − 1/2, −y |x|³ + 1/4)`;
+- `mlorenz_rho18-5`: on `[-1/2, 1/2]²`, for `x > 0`, `F(x, y) = ((18/5) x² − 1/2, y x⁶ − 1/4)`, for
+  `x < 0`, `F(x, y) = (1/2 − (18/5) x², −y x⁶ + 1/4)`.
 
 The noise half-widths `a` are the dyadic rationals 77/256, 51/256, 51/512 and 13/256.
 
 ## The densities
 
 Each density is given on the uniform grid of depth 12 of the domain: 4096 × 4096 square cells,
-of side `2^-11` for Hénon and `2^-12` for Lorenz.  It is stored as the vector of the `2^24`
+of side `2^-11` for `henon` and `2^-12` for the other two.  It is stored as the vector of the `2^24`
 masses of `f̃` on the cells, as IEEE 754 double-precision numbers; on each cell `f̃` is constant,
 equal to the mass of the cell divided by its area.  The mass of the cell in column `ix` (along
 `x`) and row `iy` (along `y`), counted from 1 at the lower left corner, is entry

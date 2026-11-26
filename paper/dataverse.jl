@@ -66,7 +66,8 @@ open(joinpath(out, "excluded.tsv"), "w") do io
 end
 
 # README: the committed text, then what this run read
-name(m) = m == "henon" ? "Hénon" : "Lorenz"
+name(m) = m == "henon" ? "Hénon" : m == "lorenz" ? "Lorenz (s = 1/2)" :
+    (r = match(r"^mlorenz_rho([0-9]+)-([0-9]+)$", m)) !== nothing ? "Lorenz (s = 2, ρ = $(r[1])/$(r[2]))" : m
 gen = IOBuffer()
 println(gen, "## The rows of Table 1\n")
 println(gen, "| map | a | density (HDF5) | density (Julia) | norms of powers |")
@@ -112,8 +113,8 @@ end
 prim(t, v) = Dict("typeName" => t, "typeClass" => "primitive", "multiple" => false, "value" => v)
 comp(t, vs) = Dict("typeName" => t, "typeClass" => "compound", "multiple" => true, "value" => vs)
 authors = ["Pacifico, Maria José", "Bioni Liberalquino, Ricardo", "Nisoli, Isaia"]
-description = "The computed stationary densities of the random Hénon map and of a random contracting " *
-    "Lorenz map with uniform noise on a square, on a grid of 4096 × 4096 cells, for the " *
+description = "The computed stationary densities of the random Hénon map and of two random " *
+    "Lorenz maps with uniform noise on a square, on a grid of 4096 × 4096 cells, for the " *
     "$(length(plan.rows)) pairs of map and noise half-width of Theorem E of the related publication, " *
     "each with a certified bound on its L¹ distance from the stationary density; the densities in HDF5 " *
     "and as Julia records, the records of the bounds, the run environments, the table and the figures. " *

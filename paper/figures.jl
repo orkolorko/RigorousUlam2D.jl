@@ -29,7 +29,8 @@
 # The density in a figure is the computed f̃ (cell masses / cell area), not the stationary density
 # itself; the bound in the title is the certified distance between the two.  Rendering is headless.
 #
-# Env: DEPTH (12), SHOW (9).
+# Env: DEPTH (12), SHOW (9), HOSTS (hosts whose records are read, "ibis,albatross"), MAPS
+# ("lorenz,mlorenz_rho18-5,henon").
 #
 #   julia --project=paper paper/figures.jl
 
@@ -44,6 +45,8 @@ const DATA = joinpath(ROOT, "data")
 const IMAGES = joinpath(ROOT, "images")
 const DEPTH = parse(Int, get(ENV, "DEPTH", "12"))
 const SHOW = parse(Int, get(ENV, "SHOW", "9"))
+const HOSTS = split(get(ENV, "HOSTS", "ibis,albatross"), ",")       # the records of these hosts, in the annex here
+const MAPS = split(get(ENV, "MAPS", "lorenz,mlorenz_rho18-5,henon"), ",")
 
 commit = try readchomp(`git -C $(pkgdir(RigorousUlam2D)) rev-parse --short HEAD`) catch; "unknown" end
 host = gethostname()
@@ -71,7 +74,7 @@ rd(s) = s == "Inf" ? Inf : Float64(read_endpoint(s, 53), RoundUp)
 # with the same key; each row remembers the record it came from
 function rows_of(prefix, key)
     byk = Dict{Any,Dict{String,String}}()
-    for f in records(DATA, prefix)
+    for f in sort(reduce(vcat, [records(DATA, prefix; host) for host in HOSTS]); by = mtime)
         for r in last(read_record(f))
             r["record"] = basename(f)
             byk[Tuple(r[c] for c in key)] = r
@@ -86,7 +89,7 @@ sources = sort(unique(vcat([r["record"] for r in dens], [r["record"] for r in mi
 mkpath(IMAGES)
 
 rows = []
-for m in ("lorenz", "henon"), a in ("77//256", "51//256", "51//512", "13//256")
+for m in MAPS, a in ("77//256", "51//256", "51//512", "13//256")
     cand = filter(r -> r["map"] == m && r["a"] == a && r["fine_depth"] == string(DEPTH) && r["err_swapped"] != "Inf", tr)
     isempty(cand) && continue
     best = cand[argmin([rd(r["err_swapped"]) for r in cand])]
@@ -97,7 +100,7 @@ for m in ("lorenz", "henon"), a in ("77//256", "51//256", "51//512", "13//256")
                  density = d["density_file"], powers = sw["powers_file"]))
 end
 
-name(m) = m == "henon" ? "Hénon" : "Lorenz"
+name(m) = m == "henon" ? "Hénon" : m == "lorenz" ? "Lorenz" : startswith(m, "mlorenz") ? "Contracting Lorenz" : m
 hdf5 = Dict{Any,String}()
 for r in rows
     rec = Serialization.deserialize(joinpath(DATA, r.density))

@@ -35,7 +35,7 @@
 # itself; the bound in the title is the certified distance between the two.  Rendering is headless.
 #
 # Env: DEPTH (12), SHOW (9), HDF5_FROM (the commit of the sources file whose HDF5 copies are
-# preferred; default the newest), HOSTS (hosts whose records are read, "ibis,albatross"), MAPS
+# preferred; default 54dff0a, the copies of the Dataverse dataset doi:10.7910/DVN/2OTJ8O), HOSTS (hosts whose records are read, "ibis,albatross"), MAPS
 # ("lorenz,mlorenz_rho18-5,henon").
 #
 #   julia --project=paper paper/figures.jl
@@ -118,10 +118,12 @@ xi(a) = (q = 2 * parse(Rational{Int}, replace(a, "//" => "/")); "$(numerator(q))
 # oldest such file.  Reusing it keeps the names (and hashes) cited by the paper and the
 # deposit stable across reruns, which would otherwise write a copy named after each commit.
 # Copies named in an earlier sources file are preferred, so that the names cited elsewhere stay
-# put: the file figures.sources.<HDF5_FROM>.*.txt when HDF5_FROM is set, else the newest one in
-# IMAGES; among the other matches, the oldest file.
+# put: those of the file figures.sources.<HDF5_FROM>.*.txt (HDF5_FROM = 54dff0a by default, the
+# copies deposited in Dataverse and cited by the paper; the newest sources file by mtime is not
+# reliable, since the annex keeps the mtimes of its objects); among the other matches, the oldest
+# file.
 function cited_hdf5()
-    from = get(ENV, "HDF5_FROM", "")
+    from = get(ENV, "HDF5_FROM", "54dff0a")
     files = filter(n -> startswith(n, "$SCRIPT.sources.") && endswith(n, ".txt") &&
                         (isempty(from) || startswith(n, "$SCRIPT.sources.$from.")), readdir(IMAGES))
     isempty(files) && return Set{String}()

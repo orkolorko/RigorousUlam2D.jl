@@ -36,7 +36,7 @@ description)`, `directory` the folder of the deposit it goes in:
   the stationary-density record names, the one the density of the table was computed from.
 
 A file larger than `maxsize` bytes goes to `excluded`, as `(; path, directory, reason)`, instead of
-`files`.  An error if a file named is missing, or if a file the sources file gives a SHA-256 for
+`files`, and so does a block that `blocks` leaves out: the deposit can then name it.  An error if a file named is missing, or if a file the sources file gives a SHA-256 for
 does not have it.  `rows` holds, for each row, the map, the noise half-width and the file names.
 """
 function deposit_plan(sources::AbstractString; data::AbstractString, images::AbstractString,
@@ -62,7 +62,7 @@ function deposit_plan(sources::AbstractString; data::AbstractString, images::Abs
     isempty(rows) && error("$(basename(sources)) names no density")
 
     files, excluded, seen = NamedTuple[], NamedTuple[], Set{String}()
-    function add!(dir, name, dirlabel, description)
+    function add!(dir, name, dirlabel, description; omit = "")
         name in seen && return
         push!(seen, name)
         path = joinpath(dir, name)
@@ -70,7 +70,9 @@ function deposit_plan(sources::AbstractString; data::AbstractString, images::Abs
         if haskey(sha, name) && file_sha256(path) != sha[name]
             error("$name does not have the SHA-256 $(sha[name]) that $(basename(sources)) gives it")
         end
-        if filesize(path) > maxsize
+        if !isempty(omit)
+            push!(excluded, (; path, directory = dirlabel, reason = omit))
+        elseif filesize(path) > maxsize
             push!(excluded, (; path, directory = dirlabel,
                                reason = "$(filesize(path)) bytes, above the limit of $maxsize"))
         else
@@ -98,17 +100,15 @@ function deposit_plan(sources::AbstractString; data::AbstractString, images::Abs
         for env in unique(get(x, "environment", "") for x in rs)
             isempty(env) || add!(data, env, "environments", "Manifest.toml of the run that wrote $name")
         end
-        if blocks != :none
-            b = match(r"\bblockfile = ([^,\s]+)", params)
-            b === nothing || add!(data, b.captures[1], "matrices",
-                                  "deterministic block L_lo <= L <= L_lo + U read by $name")
-        end
-        if blocks == :all
-            for x in rs, r in rows
-                get(x, "density_file", "") == r.density && haskey(x, "blockfile") &&
-                    add!(data, x["blockfile"], "matrices",
-                         "deterministic block L_lo <= L <= L_lo + U the density $(r.density) was computed from")
-            end
+        b = match(r"\bblockfile = ([^,\s]+)", params)
+        b === nothing || add!(data, b.captures[1], "matrices",
+                              "deterministic block L_lo <= L <= L_lo + U read by $name";
+                              omit = blocks == :none ? "not deposited (blocks = :none)" : "")
+        for x in rs, r in rows
+            get(x, "density_file", "") == r.density && haskey(x, "blockfile") &&
+                add!(data, x["blockfile"], "matrices",
+                     "deterministic block L_lo <= L <= L_lo + U the density $(r.density) was computed from";
+                     omit = blocks == :all ? "" : "not deposited (blocks = :$blocks)")
         end
     end
 

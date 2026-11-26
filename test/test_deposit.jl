@@ -36,13 +36,16 @@
                       "stationary_density.c0.h.tsv" => "records", "env.Manifest.toml" => "environments",
                       "figures.sources.c1.h.txt" => "figures", "figures.table_bounds.c1.h.tex" => "figures",
                       "figures.density_lorenz_a77-256_d12.c1.h.pdf" => "figures")
-    @test isempty(p.excluded)
+    @test sort([basename(e.path) for e in p.excluded]) == ["blk_d12.jls", "blk_d8.jls"]
+    @test all(e -> e.directory == "matrices" && startswith(e.reason, "not deposited"), p.excluded)
 
     pc = deposit_plan(src; data, images, blocks = :coarse)
-    @test count(f -> f.directory == "matrices", pc.files) == 1
+    @test [basename(f.path) for f in pc.files if f.directory == "matrices"] == ["blk_d8.jls"]
+    @test [(basename(e.path), e.reason) for e in pc.excluded] == [("blk_d12.jls", "not deposited (blocks = :coarse)")]
     pa = deposit_plan(src; data, images, blocks = :all, maxsize = 1000)
     @test [basename(f.path) for f in pa.files if f.directory == "matrices"] == ["blk_d8.jls"]
     @test [basename(e.path) for e in pa.excluded] == ["blk_d12.jls"]
+    @test startswith(only(pa.excluded).reason, "1900 bytes, above the limit")
 
     h = write_manifest(joinpath(root, "MANIFEST.sha256"), p.files)
     lines = readlines(joinpath(root, "MANIFEST.sha256"))

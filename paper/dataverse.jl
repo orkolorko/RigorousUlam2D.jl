@@ -20,7 +20,7 @@
 # draft is compared with the manifest.  Nothing is published.
 #
 # Env: SOURCES (path of the sources file), BLOCKS (none | coarse | all: the deterministic blocks the
-# records name; default none), DOI (unset: no upload), CONTACT (contact e-mail written into
+# records name; default coarse), DOI (unset: no upload), CONTACT (contact e-mail written into
 # metadata.json; default `git config user.email`).
 #
 #   julia --project=paper paper/dataverse.jl
@@ -32,7 +32,7 @@ const SCRIPT = splitext(basename(@__FILE__))[1]
 const ROOT = expanduser(get(ENV, "DATAROOT", "~/ResearchData/RigorousUlam2D_Data"))
 const DATA = joinpath(ROOT, "data")
 const IMAGES = joinpath(ROOT, "images")
-const BLOCKS = Symbol(get(ENV, "BLOCKS", "none"))
+const BLOCKS = Symbol(get(ENV, "BLOCKS", "coarse"))
 const DOI = get(ENV, "DOI", "")
 
 commit = try readchomp(`git -C $(pkgdir(RigorousUlam2D)) rev-parse --short HEAD`) catch; "unknown" end
@@ -81,8 +81,13 @@ for f in sort(plan.files; by = key)
     println(gen, "| `$(key(f))` | $(filesize(f.path)) | `$(sha[key(f)])` |")
 end
 if !isempty(plan.excluded)
-    println(gen, "\nNot in the dataset, by size (the upload limit is $DATAVERSE_FILE_LIMIT bytes):\n")
-    foreach(e -> println(gen, "- `$(e.directory)/$(basename(e.path))`: $(e.reason)"), plan.excluded)
+    println(gen, "\nNamed by the records but not in the dataset; the blocks are written by `bench/tree_deepen.jl` " *
+                 "of RigorousUlam2D.jl (the upload limit is $DATAVERSE_FILE_LIMIT bytes):\n")
+    println(gen, "| file | bytes | SHA-256 | why |")
+    println(gen, "|---|---:|---|---|")
+    for e in plan.excluded
+        println(gen, "| `$(basename(e.path))` | $(filesize(e.path)) | `$(file_sha256(e.path))` | $(e.reason) |")
+    end
 end
 println(gen, "\n## The header of every record\n")
 for f in sort(filter(f -> f.directory == "records", plan.files); by = key)

@@ -15,7 +15,7 @@
 #   the density record, as bench/l1_transfer.jl computes them;
 # - the block of d_c named in the powers record: `noisy_ulam_operator` gives the η₁, η₁ᴬ and
 #   ‖P_h‖₁ bound written in its header (and the block's SHA-256, where the header has one);
-# - the depth-8 row of the density record, from its block: the power iteration, ε₁, ε₂, the
+# - the coarsest row (depth 8, or 10) of the density record, from its block: the power iteration, ε₁, ε₂, the
 #   coordinate variations and the density itself.
 #
 # Not recomputed: the column sweeps at depths 8 and 9 (2658 s on 16 threads of ibis for one at
@@ -113,9 +113,13 @@ _params(hdr) = Dict(m.captures[1] => strip(m.captures[2])
 
             # the depth-8 density of the density record, from its block
             if densrows !== nothing
-                dr = only(filter(x -> x["map"] == map && x["depth"] == "8" && x["a"] == string(a), densrows))
-                if _have(dr["blockfile"]) && _have(dr["density_file"])
-                    P = noisy_ulam_operator(ulam_system(map), Serialization.deserialize(joinpath(RECDIR, dr["blockfile"])), 8, a)
+                # the coarsest depth of the record for this configuration: 8, or 10 for the
+                # lorenz a = 13/256 record of bde4b2c on albatross, which has depths 10 and 12 only
+                cands = filter(x -> x["map"] == map && x["a"] == string(a) && parse(Int, x["depth"]) <= 10, densrows)
+                dr = isempty(cands) ? nothing : cands[argmin([parse(Int, x["depth"]) for x in cands])]
+                if dr !== nothing && _have(dr["blockfile"]) && _have(dr["density_file"])
+                    dd = parse(Int, dr["depth"])
+                    P = noisy_ulam_operator(ulam_system(map), Serialization.deserialize(joinpath(RECDIR, dr["blockfile"])), dd, a)
                     fp = ulam_fixed_point(P.info.Amul, P.n; tol = 1e-14, maxiter = 20_000)   # the driver's defaults
                     @test string(fp.iterations) == dr["iterations"]
                     @test fp.v == Serialization.deserialize(joinpath(RECDIR, dr["density_file"])).density

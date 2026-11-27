@@ -326,7 +326,7 @@ const PAPER_RECORDS = [
     (map = "henon", a = 77 // 256, coarse = 9, density_record = "stationary_density.d78ed9d.ibis.tsv", powers_record = "l1_mixing.henon_d9_a77-256.d78ed9d.ibis.tsv"),
     (map = "henon", a = 51 // 256, coarse = 8, density_record = "stationary_density.d78ed9d.ibis.tsv", powers_record = "l1_mixing.henon_d8_a51-256.d78ed9d.ibis.tsv"),
 ]
-export PAPER_RECORDS, recertify_from_records
+export PAPER_RECORDS, recertify_from_records, latest_transfer_rows
 
 """
     recertify_from_records(entry; datadir, fine = 12) -> (; C, C_refined, F, Σ, bounds, ε1, ε2, recorded)
@@ -336,8 +336,9 @@ The bounds of one row of the table recomputed from the records named by `entry` 
 the `C_j` of the column sweep refined by submultiplicativity (`refine_norms_of_powers`), the
 coarse-fine recursion to `F_k` (`coarse_fine_norms`), `Σ = sigma_from_norms(F).grid`, and with the
 residuals `ε₁`, `ε₂` of the density at depth `fine` the bounds of `transfer_bounds`.  `recorded` is
-the `C_refined` column of the sweep record and every l1_transfer row in `datadir` computed from the
-same sweep and density record at that depth, as strings, for comparison; `bounds` is `nothing` when
+the `C_refined` column of the sweep record and the l1_transfer row in `datadir` computed from the
+same sweep and density record at that depth, the latest one (`latest_transfer_rows`), as strings,
+for comparison; `bounds` is `nothing` when
 no `F_k` is below 1.
 """
 function recertify_from_records(entry; datadir::AbstractString, fine::Int = 12)
@@ -354,10 +355,33 @@ function recertify_from_records(entry; datadir::AbstractString, fine::Int = 12)
     ε1, ε2 = rd(dr["eps1"]), rd(dr["eps2"])
     g′ = grid_constants(ulam_system(entry.map), fine, entry.a)
     bounds = Σ === nothing ? nothing : transfer_bounds(Σ.grid, g′, ε1, ε2)
-    transfers = filter(f -> occursin(r"^l1_transfer\.[0-9a-f]+\.\w+\.tsv$", f) && isfile(joinpath(datadir, f)), readdir(datadir))
-    tr = [r for f in transfers for r in last(read_record(joinpath(datadir, f)))
+    tr = [r for r in latest_transfer_rows(datadir)
           if r["powers_file"] == entry.powers_record && r["densities_file"] == entry.density_record &&
              r["fine_depth"] == string(fine)]
     return (; C, C_refined = Cr, F, Σ, bounds, ε1, ε2,
             recorded = (; C_refined = [r["C_refined"] for r in rows], transfer = tr))
+end
+
+"""
+    latest_transfer_rows(datadir) -> Vector{Dict{String,String}}
+
+The rows of every l1_transfer record in `datadir` (all commits and hosts) whose content is on this
+machine, a row of a later run replacing one of an earlier run with the same
+`(map, coarse_depth, a, fine_depth)`; a run is dated by the time in the first line of its header
+(`run_header`), which, unlike the modification time, the annex does not change.  These are the rows
+`paper/figures.jl` reads: the records of d78ed9d and d0b430a (2026-11-25) hold rows that the
+recursion as corrected at 07efe52 replaced, and they are not the paper's.
+"""
+function latest_transfer_rows(datadir::AbstractString)
+    files = filter(f -> occursin(r"^l1_transfer\.[0-9a-f]+\.\w+\.tsv$", f) && isfile(joinpath(datadir, f)), readdir(datadir))
+    dated = map(files) do f
+        hdr, rows = read_record(joinpath(datadir, f))
+        m = match(r"(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)", first(hdr))
+        (m === nothing ? "" : m.captures[1], rows)
+    end
+    byk = Dict{NTuple{4,String},Dict{String,String}}()
+    for (_, rows) in sort(dated; by = first), r in rows
+        byk[(r["map"], r["coarse_depth"], r["a"], r["fine_depth"])] = r
+    end
+    return collect(values(byk))
 end

@@ -9,7 +9,8 @@
 #
 # - the powers record: `refine_norms_of_powers` of the C_j gives the recorded C_refined, and
 #   `sigma_from_norms` the Σ_grid, Σ_V and k of the l1_mixing summary row;
-# - every l1_transfer row computed from that powers record: Σ, k, the defect 3θ_h, the a priori
+# - the latest l1_transfer row of each configuration computed from that powers record
+#   (`latest_transfer_rows`, the rows paper/figures.jl reads): Σ, k, the defect 3θ_h, the a priori
 #   bound, ‖f̃ − f_h‖₁, the bound ‖f_ξ − f̃‖₁ and the swapped bound, from C_refined and the ε₁, ε₂ of
 #   the density record, as bench/l1_transfer.jl computes them;
 # - the block of d_c named in the powers record: `noisy_ulam_operator` gives the η₁, η₁ᴬ and
@@ -82,7 +83,7 @@ _params(hdr) = Dict(m.captures[1] => strip(m.captures[2])
             densrows = _have(densrec) ? last(read_record(joinpath(RECDIR, densrec))) : nothing
             F = coarse_fine_norms(Cr, g.h, g.var12ρ)
             st = any(<(1), F) ? sigma_from_norms(F) : nothing
-            for f in transfers, r in last(read_record(joinpath(RECDIR, f)))
+            for r in latest_transfer_rows(RECDIR)          # the rows paper/figures.jl reads
                 r["powers_file"] == powrec || continue
                 densrows === nothing || r["densities_file"] != densrec && continue
                 d = parse(Int, r["fine_depth"])

@@ -31,18 +31,7 @@ using SparseArrays
 
 const RECDIR = expanduser(get(ENV, "RIGOROUSULAM2D_DATADIR", "~/ResearchData/RigorousUlam2D_Data/data"))
 
-# (map, a, density record, powers record): the rows of figures.sources.2a75ede.ibis.txt
-const TABLE = [
-    ("lorenz", 77 // 256, "stationary_density.d78ed9d.ibis.tsv", "l1_mixing.lorenz_d8_a77-256.d78ed9d.ibis.tsv"),
-    ("lorenz", 51 // 256, "stationary_density.d78ed9d.ibis.tsv", "l1_mixing.lorenz_d8_a51-256.d78ed9d.ibis.tsv"),
-    ("lorenz", 51 // 512, "stationary_density.d78ed9d.ibis.tsv", "l1_mixing.lorenz_d9_a51-512.d78ed9d.ibis.tsv"),
-    ("lorenz", 13 // 256, "stationary_density.bde4b2c.albatross.tsv", "l1_mixing.lorenz_d9_a13-256.9b89758.ibis.tsv"),
-    ("mlorenz_rho18-5", 77 // 256, "stationary_density.172fde7.albatross.tsv", "l1_mixing.mlorenz_rho18-5_d8_a77-256.172fde7.albatross.tsv"),
-    ("mlorenz_rho18-5", 51 // 256, "stationary_density.172fde7.albatross.tsv", "l1_mixing.mlorenz_rho18-5_d8_a51-256.172fde7.albatross.tsv"),
-    ("mlorenz_rho18-5", 51 // 512, "stationary_density.172fde7.albatross.tsv", "l1_mixing.mlorenz_rho18-5_d8_a51-512.172fde7.albatross.tsv"),
-    ("henon", 77 // 256, "stationary_density.d78ed9d.ibis.tsv", "l1_mixing.henon_d9_a77-256.d78ed9d.ibis.tsv"),
-    ("henon", 51 // 256, "stationary_density.d78ed9d.ibis.tsv", "l1_mixing.henon_d8_a51-256.d78ed9d.ibis.tsv"),
-]
+const TABLE = [(e.map, e.a, e.density_record, e.powers_record) for e in PAPER_RECORDS]
 
 _have(f) = isfile(joinpath(RECDIR, f))          # false for an annexed file whose content is elsewhere
 _rd(s) = s == "Inf" ? Inf : Float64(read_endpoint(s, 53), RoundUp)
@@ -77,6 +66,16 @@ _params(hdr) = Dict(m.captures[1] => strip(m.captures[2])
                 @test (r["Sigma_grid"], r["Sigma_V"], r["k"]) == (_wr(s.grid), _wr(s.V), string(s.k))
             end
             @test nsum >= 1
+
+            # recertify_from_records reproduces the recorded rows at depth 12
+            if _have(densrec)
+                e = only(filter(e -> e.powers_record == powrec, PAPER_RECORDS))
+                rc = recertify_from_records(e; datadir = RECDIR)
+                @test _wr.(rc.C_refined) == rc.recorded.C_refined
+                for r in rc.recorded.transfer
+                    @test (r["Sigma"], r["err"], r["err_swapped"]) == (_wr(rc.Σ.grid), _wr(rc.bounds.err), _wr(rc.bounds.err_swapped))
+                end
+            end
 
             # every l1_transfer row from this sweep
             densrows = _have(densrec) ? last(read_record(joinpath(RECDIR, densrec))) : nothing

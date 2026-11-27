@@ -101,12 +101,12 @@ end
 
 """
     run_stationary_density(map, depth, a; datadir, tol = 1e-14, maxiter = 20_000,
-                           script = "bench/stationary_density.jl")
+                           script = "bench/stationary_density.jl", blockfile = block_file(datadir, map, depth))
         -> (; P, fp, res, cv, defect, record, density_file), or nothing
 
 The computed stationary density of the noisy Ulam operator `P_h = π N_ξ π L π` of the map `map` at
 the depth `depth` and the noise half-width `a` (`noisy_ulam_operator` of the block of `run_blocks`
-on this host), with its a posteriori quantities: the density `f̃` is the power iteration
+on this host, or the file `blockfile`), with its a posteriori quantities: the density `f̃` is the power iteration
 `ulam_fixed_point` on the masses; `ε₁ ≥ ‖P_h f̃ − f̃‖₁` and `ε₂ ≥ |Σ f̃ − 1|` (`fixed_point_residual`,
 with the ℓ¹ rounding model `η₁` of `noisy_operator`, which covers the rounding of the products and
 the enclosure of `L`); `var₁(f̃)`, `var₂(f̃)` (`coordinate_variations`); and the a priori defect
@@ -116,13 +116,14 @@ Writes the density (cell masses, grid order) to `datadir/stationary_density.<map
 and a row of `datadir/stationary_density.<commit>.<host>.tsv`, the bounds as exact doubles.
 """
 function run_stationary_density(map::AbstractString, depth::Int, a::Rational; datadir::AbstractString,
-        tol::Float64 = 1e-14, maxiter::Int = 20_000, script::AbstractString = "bench/stationary_density.jl")
+        tol::Float64 = 1e-14, maxiter::Int = 20_000, script::AbstractString = "bench/stationary_density.jl",
+        blockfile::AbstractString = block_file(datadir, map, depth))
     record = record_file(datadir, "stationary_density", RigorousUlam2D)
     (map, string(depth), string(a)) in recorded_keys(record, "map", "depth", "a") &&
         (println("$map depth $depth a = $a is in $(basename(record))"); return nothing)
     densfile = replace(record_file(datadir, "stationary_density.$(map)_d$(depth)_$(_amp(a))", RigorousUlam2D),
                        r"\.tsv$" => ".jls")
-    blkfile = block_file(datadir, map, depth)
+    blkfile = blockfile
     t0 = time()
     P = noisy_ulam_operator(ulam_system(map), Serialization.deserialize(blkfile), depth, a)
     header = run_header(RigorousUlam2D, script)
@@ -150,13 +151,14 @@ end
 
 """
     run_column_sweep(map, depth, a; datadir, M = 150, block = 8, cols = nothing,
-                     script = "bench/l1_mixing.jl") -> (; C, sigma, n, h, var12ρ, record), or nothing
+                     script = "bench/l1_mixing.jl", blockfile = block_file(datadir, map, depth)) -> (; C, sigma, n, h, var12ρ, record), or nothing
 
 The ℓ¹ norms of the powers of the noisy Ulam operator `P_h` on the zero-sum vectors `V_h`, by
 columns (`norms_of_powers_columns`): `C_j ≥ ‖P_h^j|_{V_h}‖₁` for `j ≤ M`, the maximum over the cells
 `i` of `‖P_h^j e_i − u‖₁` plus the propagated rounding, every column iterated in floating point with
 the ℓ¹ rounding model `η₁` of `noisy_operator` and `‖P_h‖₁ ≤ ‖L_lo + U‖₁`.  The operator is
-`noisy_ulam_operator` of the block of `run_blocks` at this depth on this host.  `u`, a free choice
+`noisy_ulam_operator` of the block of `run_blocks` at this depth on this host, or of the file
+`blockfile`.  `u`, a free choice
 in the bound, is the density of the `stationary_density` record of the same configuration when there
 is one, else the power iteration.  The bounds are refined by submultiplicativity and recorded by
 `record_column_sweep`: `datadir/l1_mixing.<map>_d<depth>_a<p>-<q>.<commit>.<host>.tsv` (`j`, `C_j`,
@@ -171,7 +173,7 @@ the whole run bit for bit.
 """
 function run_column_sweep(map::AbstractString, depth::Int, a::Rational; datadir::AbstractString,
         M::Int = 150, block::Int = 8, cols::Union{Nothing,AbstractUnitRange{Int}} = nothing,
-        script::AbstractString = "bench/l1_mixing.jl")
+        script::AbstractString = "bench/l1_mixing.jl", blockfile::AbstractString = block_file(datadir, map, depth))
     amp = _amp(a)
     summary = record_file(datadir, "l1_mixing", RigorousUlam2D)
     (map, string(depth), string(a)) in recorded_keys(summary, "map", "depth", "a") &&
@@ -184,7 +186,7 @@ function run_column_sweep(map::AbstractString, depth::Int, a::Rational; datadir:
     environment = save_environment(part === nothing ? summary : part)
 
     sys = ulam_system(map)
-    blkfile = block_file(datadir, map, depth)
+    blkfile = blockfile
     t0 = time()
     P = noisy_ulam_operator(sys, Serialization.deserialize(blkfile), depth, a)
     densrec = try latest_record(datadir, "stationary_density") catch; nothing end
@@ -303,4 +305,59 @@ function run_transfer(map::AbstractString, depth::Int, a::Rational, fine::Abstra
     end
     println("recorded in $(basename(record))")
     return rows
+end
+
+"""
+    PAPER_RECORDS
+
+The records behind Table 1 of the paper, as `paper/figures.jl` at 2a75ede on ibis read them
+(`figures.sources.2a75ede.ibis.txt`): one named tuple `(map, a, coarse, density_record,
+powers_record)` per row of the table, `coarse` the depth of the column sweep and `a` the noise
+half-width (`ξ = 2a`); the bounds are those at depth 12.
+"""
+const PAPER_RECORDS = [
+    (map = "lorenz", a = 77 // 256, coarse = 8, density_record = "stationary_density.d78ed9d.ibis.tsv", powers_record = "l1_mixing.lorenz_d8_a77-256.d78ed9d.ibis.tsv"),
+    (map = "lorenz", a = 51 // 256, coarse = 8, density_record = "stationary_density.d78ed9d.ibis.tsv", powers_record = "l1_mixing.lorenz_d8_a51-256.d78ed9d.ibis.tsv"),
+    (map = "lorenz", a = 51 // 512, coarse = 9, density_record = "stationary_density.d78ed9d.ibis.tsv", powers_record = "l1_mixing.lorenz_d9_a51-512.d78ed9d.ibis.tsv"),
+    (map = "lorenz", a = 13 // 256, coarse = 9, density_record = "stationary_density.bde4b2c.albatross.tsv", powers_record = "l1_mixing.lorenz_d9_a13-256.9b89758.ibis.tsv"),
+    (map = "mlorenz_rho18-5", a = 77 // 256, coarse = 8, density_record = "stationary_density.172fde7.albatross.tsv", powers_record = "l1_mixing.mlorenz_rho18-5_d8_a77-256.172fde7.albatross.tsv"),
+    (map = "mlorenz_rho18-5", a = 51 // 256, coarse = 8, density_record = "stationary_density.172fde7.albatross.tsv", powers_record = "l1_mixing.mlorenz_rho18-5_d8_a51-256.172fde7.albatross.tsv"),
+    (map = "mlorenz_rho18-5", a = 51 // 512, coarse = 8, density_record = "stationary_density.172fde7.albatross.tsv", powers_record = "l1_mixing.mlorenz_rho18-5_d8_a51-512.172fde7.albatross.tsv"),
+    (map = "henon", a = 77 // 256, coarse = 9, density_record = "stationary_density.d78ed9d.ibis.tsv", powers_record = "l1_mixing.henon_d9_a77-256.d78ed9d.ibis.tsv"),
+    (map = "henon", a = 51 // 256, coarse = 8, density_record = "stationary_density.d78ed9d.ibis.tsv", powers_record = "l1_mixing.henon_d8_a51-256.d78ed9d.ibis.tsv"),
+]
+export PAPER_RECORDS, recertify_from_records
+
+"""
+    recertify_from_records(entry; datadir, fine = 12) -> (; C, C_refined, F, Σ, bounds, ε1, ε2, recorded)
+
+The bounds of one row of the table recomputed from the records named by `entry` (an element of
+`PAPER_RECORDS`) in `datadir`, by one evaluation of each step on the grid the record ended on:
+the `C_j` of the column sweep refined by submultiplicativity (`refine_norms_of_powers`), the
+coarse-fine recursion to `F_k` (`coarse_fine_norms`), `Σ = sigma_from_norms(F).grid`, and with the
+residuals `ε₁`, `ε₂` of the density at depth `fine` the bounds of `transfer_bounds`.  `recorded` is
+the `C_refined` column of the sweep record and every l1_transfer row in `datadir` computed from the
+same sweep and density record at that depth, as strings, for comparison; `bounds` is `nothing` when
+no `F_k` is below 1.
+"""
+function recertify_from_records(entry; datadir::AbstractString, fine::Int = 12)
+    rd(s) = s == "Inf" ? Inf : Float64(read_endpoint(s, 53), RoundUp)
+    _, rows = read_record(joinpath(datadir, entry.powers_record))
+    sort!(rows; by = r -> parse(Int, r["j"]))
+    C = [rd(r["C"]) for r in rows]
+    Cr = refine_norms_of_powers(C, length(C))
+    g = grid_constants(ulam_system(entry.map), entry.coarse, entry.a)
+    F = coarse_fine_norms(Cr, g.h, g.var12ρ)
+    Σ = any(<(1), F) ? sigma_from_norms(F) : nothing
+    dens = last(read_record(joinpath(datadir, entry.density_record)))
+    dr = only(filter(r -> r["map"] == entry.map && r["depth"] == string(fine) && r["a"] == string(entry.a), dens))
+    ε1, ε2 = rd(dr["eps1"]), rd(dr["eps2"])
+    g′ = grid_constants(ulam_system(entry.map), fine, entry.a)
+    bounds = Σ === nothing ? nothing : transfer_bounds(Σ.grid, g′, ε1, ε2)
+    transfers = filter(f -> occursin(r"^l1_transfer\.[0-9a-f]+\.\w+\.tsv$", f) && isfile(joinpath(datadir, f)), readdir(datadir))
+    tr = [r for f in transfers for r in last(read_record(joinpath(datadir, f)))
+          if r["powers_file"] == entry.powers_record && r["densities_file"] == entry.density_record &&
+             r["fine_depth"] == string(fine)]
+    return (; C, C_refined = Cr, F, Σ, bounds, ε1, ε2,
+            recorded = (; C_refined = [r["C_refined"] for r in rows], transfer = tr))
 end

@@ -80,3 +80,15 @@ DATAVERSE_FILE_LIMIT
 deposit_plan
 write_manifest
 ```
+
+## The stages of a run
+
+```@docs
+run_blocks
+run_stationary_density
+run_column_sweep
+run_transfer
+transfer_bounds
+PAPER_RECORDS
+recertify_from_records
+```

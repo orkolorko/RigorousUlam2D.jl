@@ -5,7 +5,8 @@ using Documenter, Literate
 # (see example_settings in docs/literate/settings.jl).
 for name in ("henon", "lorenz_like", "contracting_lorenz")
     Literate.markdown(joinpath(@__DIR__, "literate", "$name.jl"), joinpath(@__DIR__, "src", "examples");
-                      documenter = true, execute = false)
+                      documenter = true, execute = false,
+                      codefence = "```julia" => "```")   # shown, not run by Documenter
 end
 
 DocMeta.setdocmeta!(RigorousUlam2D, :DocTestSetup, :(using RigorousUlam2D); recursive=true)

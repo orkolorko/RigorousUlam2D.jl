@@ -44,8 +44,9 @@ _params(hdr) = Dict(m.captures[1] => strip(m.captures[2])
         @info "test_records: no record of the paper's table on this machine ($RECDIR); nothing checked"
         @test true
     end
-    summaries = filter(f -> occursin(r"^l1_mixing\.[0-9a-f]+\.\w+\.tsv$", f) && _have(f), readdir(RECDIR))
-    transfers = filter(f -> occursin(r"^l1_transfer\.[0-9a-f]+\.\w+\.tsv$", f) && _have(f), readdir(RECDIR))
+    names = isdir(RECDIR) ? readdir(RECDIR) : String[]
+    summaries = filter(f -> occursin(r"^l1_mixing\.[0-9a-f]+\.\w+\.tsv$", f) && _have(f), names)
+    transfers = filter(f -> occursin(r"^l1_transfer\.[0-9a-f]+\.\w+\.tsv$", f) && _have(f), names)
     for (map, a, densrec, powrec) in TABLE
         _have(powrec) || continue
         depth = parse(Int, match(r"_d([0-9]+)_", powrec).captures[1])

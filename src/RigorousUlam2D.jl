@@ -15,7 +15,8 @@ The stages, each in its own file:
   rounding model;
 - `norms_of_powers.jl`: `C_j ≥ ‖P_h^j|_{V_h}‖₁` by iterating every column;
 - `l1_error.jl`: the computed density, its residuals, the coarse-fine recursion and the L¹ bounds;
-- `experiments.jl`: the stages the drivers in `bench/` are thin over, and the names of their files;
+- `experiments.jl`, `stages.jl`: the named stages the drivers in `bench/` are thin over (`run_blocks`,
+  `run_stationary_density`, `run_column_sweep`, `run_transfer`), and the names of their files;
 - `archive.jl`, `deposit.jl`: the archival copies and the deposit of the data.
 """
 module RigorousUlam2D
@@ -35,6 +36,7 @@ include("noisy_operator.jl")
 include("norms_of_powers.jl")
 include("l1_error.jl")
 include("experiments.jl")
+include("stages.jl")
 include("archive.jl")
 include("deposit.jl")
 

@@ -21,57 +21,10 @@
 #
 #   julia --project=. bench/l1_transfer.jl
 
-using RigorousUlam2D, Printf
-using BallArithmetic: add_up, mul_up
-using CertifiedRecords
+using RigorousUlam2D
 
-const SCRIPT = splitext(basename(@__FILE__))[1]
-const DATADIR = expanduser(get(ENV, "DATADIR", "~/ResearchData/RigorousUlam2D_Data/data"))
-const MAP = get(ENV, "MAP", "lorenz")
-const DEPTH = parse(Int, get(ENV, "DEPTH", "8"))
-const A = let s = get(ENV, "A", "77//256"); p, q = parse.(Int, split(s, "//")); p // q end
-const FINE = parse.(Int, split(get(ENV, "FINE", "10,12"), ","))
-
-t0 = time()
-rd(s) = Float64(read_endpoint(s, 53), RoundUp)        # exact for a double written by write_endpoint; upward otherwise
-record = record_file(DATADIR, SCRIPT, RigorousUlam2D)
-done = recorded_keys(record, "map", "coarse_depth", "a", "fine_depth")
-environment = save_environment(record)
-powers = latest_record(DATADIR, "l1_mixing.$(MAP)_d$(DEPTH)_a$(numerator(A))-$(denominator(A))")
-Cr = [rd(r["C_refined"]) for r in sort(last(read_record(powers)); by = r -> parse(Int, r["j"]))]
-densrec = latest_record(DATADIR, "stationary_density")
-dens = last(read_record(densrec))
-g = grid_constants(ulam_system(MAP), DEPTH, A)
-
-print(run_header(RigorousUlam2D, "bench/$SCRIPT.jl"; map = MAP, depth = DEPTH, a = A, fine = FINE,
-    powers = basename(powers), densities = basename(densrec)))
-@printf("h = %.6g, var₁₂(ρ_ξ) = %.6g, (h/2) var₁₂(ρ_ξ) = %.6g, M = %d\n", g.h, g.var12ρ, mul_up(0.5 * g.h, g.var12ρ), length(Cr))
-F = coarse_fine_norms(Cr, g.h, g.var12ρ)
-s = any(<(1), F) ? sigma_from_norms(F) : nothing
-s === nothing ? println("no F_k below 1 up to k = $(length(F))") :
-    @printf("F_k < 1 first at k = %d; Σ ≤ %.6g at k = %d (α = %.6g)\n", findfirst(<(1), F), s.grid, s.k, s.α)
-
-open_record(record, run_header(RigorousUlam2D, "bench/$SCRIPT.jl"),
-    ["map", "coarse_depth", "a", "fine_depth", "Sigma", "k", "defect", "err_apriori", "dist", "err", "err_swapped", "powers_file", "densities_file", "seconds", "environment"])
-for d in FINE
-    (MAP, string(DEPTH), string(A), string(d)) in done && continue
-    i = findfirst(r -> r["map"] == MAP && r["depth"] == string(d) && r["a"] == string(A), dens)
-    i === nothing && (println("depth $d: no row in $(basename(densrec))"); continue)
-    g′ = grid_constants(ulam_system(MAP), d, A)
-    defect, ε1, ε2 = defect_apriori(g′.h, g′.var12ρ), rd(dens[i]["eps1"]), rd(dens[i]["eps2"])
-    if s === nothing
-        append_record(record, [MAP, DEPTH, A, d, "Inf", 0, write_endpoint(defect)[1], "Inf", "Inf", "Inf", "Inf", basename(powers), basename(densrec),
-            round(time() - t0; digits = 1), environment])
-        continue
-    end
-    err_apriori = mul_up(s.grid, defect)
-    dist = fixed_point_distance(s.grid, ε1, ε2)
-    err = add_up(err_apriori, dist)
-    err_swapped = swapped_error(s.grid, g′.h, g′.var12ρ, ε1, ε2)
-    @printf("depth %2d: (3h'/2) var₁₂(ρ_ξ) = %.6g, ‖f_ξ − f_h'‖₁ ≤ %.6g, ‖f̃ − f_h'‖₁ ≤ %.3e, ‖f_ξ − f̃‖₁ ≤ %.6g, swapped ≤ %.6g\n",
-        d, defect, err_apriori, dist, err, err_swapped)
-    append_record(record, [MAP, DEPTH, A, d, write_endpoint(s.grid)[1], s.k, write_endpoint(defect)[1],
-        write_endpoint(err_apriori)[1], write_endpoint(dist)[1], write_endpoint(err)[1], write_endpoint(err_swapped)[1], basename(powers), basename(densrec),
-        round(time() - t0; digits = 1), environment])
-end
-println("recorded in $(basename(record))")
+env(k, d) = get(ENV, k, d)
+rational(s) = (p = parse.(Int, split(s, "//")); p[1] // p[2])
+run_transfer(env("MAP", "lorenz"), parse(Int, env("DEPTH", "8")), rational(env("A", "77//256")),
+    parse.(Int, split(env("FINE", "10,12"), ","));
+    datadir = expanduser(env("DATADIR", "~/ResearchData/RigorousUlam2D_Data/data")), script = "bench/l1_transfer.jl")

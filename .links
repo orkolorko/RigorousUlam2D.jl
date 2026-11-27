@@ -8,4 +8,4 @@ write=RigorousUlam2D
 # the working data, in ~/ResearchData (temporary)
 data=RigorousUlam2D_Data
 # the DATA, once published: doi:10.7910/DVN/XXXXXX
-dataverse=
+dataverse=doi:10.7910/DVN/2OTJ8O

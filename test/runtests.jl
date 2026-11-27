@@ -49,3 +49,5 @@ using Test
     include("test_deposit.jl")
 
 end
+
+include("test_reproducibility.jl")

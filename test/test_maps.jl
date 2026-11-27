@@ -11,8 +11,6 @@ using Test
             ("henon", henon_system(), 0.1, 0.2, ((1 - 1.4 * 0.15^2 + 0.1) / 1.5, 0.09)),
             ("lorenz +", lorenz_system(), 0.09, 0.2, (0.5 - 1.3 * sqrt(0.09), 0.2 * 0.09^3 - 0.25)),
             ("lorenz −", lorenz_system(), -0.09, 0.2, (1.3 * sqrt(0.09) - 0.5, -0.2 * 0.09^3 + 0.25)),
-            ("contracting +", contracting_lorenz_system(), 0.3, 0.2, (0.5 - 4 * 0.09, 0.2 * 0.027 - 0.25)),
-            ("contracting −", contracting_lorenz_system(ρ = 18 // 5), -0.3, 0.2, (3.6 * 0.09 - 0.5, -0.2 * 0.027 + 0.25)),
             ("metzger +", metzger_lorenz_system(), 0.3, 0.2, (3.6 * 0.09 - 0.5, 0.2 * 0.3^6 - 0.25)),
             ("metzger −", metzger_lorenz_system(), -0.3, 0.2, (0.5 - 3.6 * 0.09, -0.2 * 0.3^6 + 0.25)))
         P = sys.F(interval(x), interval(y))
@@ -21,8 +19,6 @@ using Test
 
     @testset "$(sys.name): column sums bracket 1, routes agree" for sys in (henon_system(bisect = 16),
                                                                           lorenz_system(bisect = 16),
-                                                                          contracting_lorenz_system(bisect = 16),
-                                                                          contracting_lorenz_system(ρ = 18 // 5, bisect = 16),
                                                                           metzger_lorenz_system(bisect = 16))
         plain = ulam_system(sys.name; bisect = 16, xinv = false)
         mats(area) = ulam_matrices(UlamTree(sys.F, sys.domain, 2, 5; enclosure_method = zeroth_order_enclosure,
@@ -36,7 +32,7 @@ using Test
             @test sum(c.U) <= sum(z.U)              # the areas tighten the counting enclosure
         end
     end
-    @test ulam_system("clorenz_rho18-5").name == "clorenz_rho18-5"
+    @test_throws ArgumentError ulam_system("clorenz_rho18-5")
     @test ulam_system("mlorenz_rho18-5").name == "mlorenz_rho18-5"
     # the integral of the fibre inverse against a fine midpoint sum, on one piece of each sign
     sys = metzger_lorenz_system()
@@ -48,5 +44,5 @@ using Test
     end
     # ℓ increases on each branch
     @test inf(metzger_lorenz_system().F(interval(0.2), interval(0.0))[1]) > sup(metzger_lorenz_system().F(interval(0.1), interval(0.0))[1])
-    @test_throws ArgumentError contracting_lorenz_system(ρ = 5 // 1)
+    @test_throws ArgumentError metzger_lorenz_system(ρ = 5 // 1)
 end

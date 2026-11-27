@@ -45,9 +45,9 @@ const RIMl = RigorousInvariantMeasures
         perm = grid_order(dom, d)
         L_lo, U = hier.L_lo[perm, perm], hier.U[perm, perm]
         N = SquareNoise(dom, d, 0.5; slots = 2)
-        op, info = noisy_operator(L_lo, U, N)
+        info = noisy_operator(L_lo, U, N)
         @test info.colL >= opnorm(Matrix(info.Lhat), 1) && info.colE >= opnorm(Matrix(L_lo + U - info.Lhat), 1)
-        @test info.η1 >= info.colE && info.eta1A >= info.etaA
+        @test info.η1 >= info.colE && info.eta1A > 0
         # the ℓ¹ rounding model against the product in 256-bit arithmetic
         B = RIMl.Ulam(k)
         Kb = Matrix{BigFloat}(undef, k, k)
@@ -94,7 +94,7 @@ const RIMl = RigorousInvariantMeasures
                                       area = sys.area), 6:7; level = 9)
         a = 3 // 8                                   # ξ = 3/4: ξ k exact at both depths
         op(d) = (m = mats[d - 5]; perm = grid_order(sys.domain, d);
-                 noisy_operator(m.L_lo[perm, perm], m.U[perm, perm], SquareNoise(sys.domain, d, Float64(a); slots = 2))[2])
+                 noisy_operator(m.L_lo[perm, perm], m.U[perm, perm], SquareNoise(sys.domain, d, Float64(a); slots = 2)))
         ic, if_ = op(6), op(7)
         nc = 4^6; M = 30
         u = ulam_fixed_point(ic.Amul, nc).v

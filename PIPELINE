@@ -1,0 +1,21 @@
+# The order the scripts must run in, and what each produces.
+#
+#   script                     : output, output, ...
+#
+# Every output is written into ~/ResearchData/RigorousUlam2D_Data (data/ or images/), named after
+# the script, the configuration, the commit and the host.  Each driver runs one configuration,
+# chosen by environment variables (MAP, DEPTH, A, ...; see its header), and skips one already on
+# record.  The paper's table needs, for each map and noise size, the blocks at depths 8 to 12, the
+# densities at those depths, the column sweep at the coarse depth (8 or 9), and the transfer to 12.
+# These are not runs for nighthawk: the depth-12 blocks and densities, and the column sweeps, run
+# on ibis or albatross.
+#
+# bench/tree_deepen.jl         : data/tree_deepen.<map>_d<d>_level<L>_area<B>_xinv_t<D1>.<host>.jls, data/tree_deepen.<commit>.<host>.tsv
+# bench/stationary_density.jl  : data/stationary_density.<map>_d<d>_a<p>-<q>.<commit>.<host>.jls, data/stationary_density.<commit>.<host>.tsv
+# bench/l1_mixing.jl           : data/l1_mixing.<map>_d<d>_a<p>-<q>.<commit>.<host>.tsv, data/l1_mixing.<commit>.<host>.tsv
+# bench/l1_mixing_merge.jl     : the same two records, from parts of a sweep run with COLS on several hosts
+# bench/l1_transfer.jl         : data/l1_transfer.<commit>.<host>.tsv
+# paper/figures.jl             : images/figures.*.<commit>.<host>.{pdf,tex,txt}, data/figures.density_*.<commit>.<host>.h5
+# paper/dynamics.jl            : images/dynamics.*.<commit>.<host>.pdf
+# paper/blocks_hdf5.jl         : data/blocks_hdf5.<block>.<L_lo|U>.<commit>.<host>.h5
+# paper/dataverse.jl           : dataverse.<commit>.<host>/{files.tsv,excluded.tsv,MANIFEST.sha256,README.md,metadata.json}

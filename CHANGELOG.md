@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Removed (2026-11-27, for publication with the paper)
+
+The API that the paper's computations do not use, with its tests: `rel_size`,
+`build_adaptive_partition`, `build_transition_matrix`, the explicit noise operators of
+`noise_convolution.jl`, `boundary_conditions.jl` (but `wrap_to_torus` on numbers), `transfer_matvec.jl`,
+the Haar wavelet and Schur-complement bounds, and `spectral_analysis.jl` except
+`norms_of_powers_columns` and `norms_of_powers_sparse` (now `norms_of_powers.jl`);
+`contracting_lorenz_system` (`clorenz_rho<p>-<q>`), superseded by `metzger_lorenz_system`; the ℓ²
+rounding model and the `LinOp` of `noisy_operator`, with `bench/certified_gap.jl`, and the
+dependencies on RigorousPseudospectra and DataStructures; `examples/`, `notebooks/`, `results/`,
+`scripts/`, the run logs and the PDFs at the root.  Everything removed is in the history before
+this entry.  The sections below describe the package before it.
+
 ### Added
 
 #### Spectral Analysis Module with Rigorous Error Bounds (2026-01-31)

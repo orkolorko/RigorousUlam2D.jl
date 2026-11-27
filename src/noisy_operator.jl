@@ -1,15 +1,12 @@
 """
-The noisy Ulam operator on the square grid, `P_δ = N L`, from the deterministic block
+The noisy Ulam operator on the square grid, `P_h = π N_ξ π L π`, from the deterministic block
 `L_lo ≤ L ≤ L_lo + U` of `ulam_matrices` and the Ulam projection of the uniform noise, applied
-matrix-free as `y ↦ fl(N fl(L̂ y))` with `L̂ = fl(L_lo + U/2)`, together with a constant `η` such
-that
+matrix-free as `y ↦ fl(N fl(L̂ y))` with `L̂ = fl(L_lo + U/2)`, together with constants `η₁`,
+`η₁ᴬ` such that
 
-    ‖fl(N L̂ y) − P_δ y‖₂ ≤ η ‖y‖₂,   ‖fl(L̂ᵀ N y) − P_δᵀ y‖₂ ≤ η ‖y‖₂
+    ‖fl(N L̂ y) − P_h y‖₁ ≤ η₁ ‖y‖₁ + η₁ᴬ
 
-for every `y` and every matrix `L` of the enclosure.  This is the rounding model of
-`RigorousPseudospectra.LinOp` with `P_δ` itself as the operator being certified and the two
-products as its inexact evaluations, so a certificate on the `LinOp` of `noisy_operator` is a
-certificate on `P_δ`.
+for every `y` and every matrix `L` of the enclosure.
 
 `N` is the product `N_y ⊗ N_x` of two `UlamProjectedUniformKernel` of
 `RigorousInvariantMeasures`, the operator `π N_ξ π` of one axis (periodic or reflecting), which
@@ -19,40 +16,30 @@ one-dimensional ones.  Vectors are in grid order, `v[(ix - 1) k + iy]` for the c
 of the `k × k` grid, `k = 2^depth`, so that `reshape(v, k, k)[iy, ix]` is the cell; `grid_order`
 is the permutation from the order of `build_uniform_partition`.
 
-The constant.  With `w` the largest number of nonzeros in a row or a column of `L̂`,
-`ε_L = √w γ_w` [Higham, Accuracy and Stability of Numerical Algorithms, 2nd ed., (3.11)-(3.12)],
-`‖L̂‖₂ ≤ ‖L̂‖ := √(‖L̂‖₁ ‖L̂‖_∞)`, `‖N‖₂ ≤ √(‖N‖₁ ‖N‖_∞) = 1` since `N` is nonnegative with unit row
-and column sums, `λ := √(‖E‖₁ ‖E‖_∞) ≥ ‖L̂ − L‖₂` for every `L` of the enclosure, where
-`E_ij = max(L̂ − L_lo, L_lo + U − L̂)_ij ≥ |L̂ − L|_ij`, and `γ_N` the relative rounding of the
-product by `N`, `|fl(Nv) − Nv| ≤ γ_N N|v|` entrywise, whence `‖fl(Nv) − Nv‖₂ ≤ γ_N ‖v‖₂`:
+The constants.  With `w` the largest number of nonzeros in a row or a column of `L̂`, `γ_w` the
+a priori bound of an inner product of `w` terms [Higham, Accuracy and Stability of Numerical
+Algorithms, 2nd ed., (3.11)], `E_ij = max(L̂ − L_lo, L_lo + U − L̂)_ij ≥ |L̂ − L|_ij` for every
+`L` of the enclosure, and `γ_N` the relative rounding of the product by `N`,
+`|fl(Nv) − Nv| ≤ γ_N N|v|` entrywise: `|fl(L̂ y) − L̂ y| ≤ γ_w |L̂| |y|` entrywise, so with
+`fl(L̂ y) = L̂ y + e₁` and `fl(N v) = N v + e₂` for `v = fl(L̂ y)`,
 
-    fl(L̂ y) = L̂ y + e₁,   ‖e₁‖ ≤ ε_L ‖L̂‖ ‖y‖,
-    fl(N v) = N v + e₂,    ‖e₂‖ ≤ γ_N ‖v‖ ≤ γ_N (1 + ε_L) ‖L̂‖ ‖y‖   for v = fl(L̂ y),
-    fl(N L̂ y) − N L y = N (L̂ − L) y + N e₁ + e₂,
+    ‖e₁‖₁ ≤ γ_w ‖L̂‖₁ ‖y‖₁,   ‖v‖₁ ≤ (1 + γ_w) ‖L̂‖₁ ‖y‖₁,   ‖e₂‖₁ ≤ γ_N ‖N‖₁ ‖v‖₁ = γ_N ‖v‖₁,
+    fl(N L̂ y) − N L y = N (L̂ − L) y + N e₁ + e₂,   ‖N (L̂ − L) y‖₁ ≤ ‖E‖₁ ‖y‖₁,
 
-so `η = λ + ‖L̂‖ (ε_L + γ_N (1 + ε_L))`; the adjoint product `fl(L̂ᵀ fl(N y))` gives
-`λ + ‖L̂‖ (γ_N + ε_L (1 + γ_N))`, the same number, `N` being symmetric.  The product by `N` is the
-one-dimensional kernel along `y` and then along `x`: with `|fl(K v) − K v| ≤ γ_K K|v|` for each
-kernel (`RigorousInvariantMeasures`, `UlamProjectedUniformKernel`), the two passes give
-`γ_N = (1 + γ_x)(1 + γ_y) − 1`.  Every operation on the constants is rounded upward.
-
-The same in ℓ¹, for the residual of a computed density (`l1_error.jl`): with `γ_w` the rounding
-of an inner product of `w` terms, `|fl(L̂ y) − L̂ y| ≤ γ_w |L̂| |y|` entrywise, so
-`‖e₁‖₁ ≤ γ_w ‖L̂‖₁ ‖y‖₁`, `‖v‖₁ ≤ (1 + γ_w) ‖L̂‖₁ ‖y‖₁`, `‖e₂‖₁ ≤ γ_N ‖N‖₁ ‖v‖₁ = γ_N ‖v‖₁`, and
-`‖N (L̂ − L) y‖₁ ≤ ‖E‖₁ ‖y‖₁`; whence
-
-    ‖fl(N L̂ y) − P_δ y‖₁ ≤ η₁ ‖y‖₁ + η₁ᴬ,   η₁ = ‖E‖₁ + ‖L̂‖₁ (γ_w + γ_N (1 + γ_w)),
-
-with `η₁ᴬ = √n η_A` the ℓ¹ size of the absolute (underflow) term `η_A` of the ℓ² model.
+whence `η₁ = ‖E‖₁ + ‖L̂‖₁ (γ_w + γ_N (1 + γ_w))`, `N` being nonnegative with unit column sums.  The
+product by `N` is the one-dimensional kernel along `y` and then along `x`: with
+`|fl(K v) − K v| ≤ γ_K K|v|` for each kernel (`RigorousInvariantMeasures`,
+`UlamProjectedUniformKernel`), the two passes give `γ_N = (1 + γ_x)(1 + γ_y) − 1`.  The absolute
+(underflow) term is `η₁ᴬ = √n η_A`, the ℓ¹ size of the bound `η_A` on the underflow of `n` entries
+of `w + nnz_per_row(N)` products each (`_eta_stored`).  Every operation on the constants is
+rounded upward.
 """
 
 using RigorousInvariantMeasures: RigorousInvariantMeasures
-using RigorousPseudospectra: RigorousPseudospectra, LinOp, norm_lower
-using BallArithmetic: gamma_bound, mul_up, add_up, sub_up, sqrt_up, div_up
+using BallArithmetic: gamma_bound, mul_up, add_up, sub_up, sqrt_up, div_up, sum_up, subnormal_min
 const RIM = RigorousInvariantMeasures
-const RP = RigorousPseudospectra
 
-export SquareNoise, grid_order, noisy_operator
+export SquareNoise, noisy_operator
 
 """
     SquareNoise(domain, depth, a; bc = :periodic, slots = Threads.nthreads())
@@ -122,30 +109,14 @@ end
 Base.:*(N::SquareNoise, v::AbstractVector) = apply!(N, Vector{Float64}(v))
 
 """
-    grid_order(domain, depth) -> perm
+    noisy_operator(L_lo, U, N::SquareNoise) -> info
 
-The permutation from the order of `build_uniform_partition(domain, depth)` to the grid order of
-this file: `v[perm]` and `L[perm, perm]` are in grid order when `v` and `L` are indexed as the
-partition (`perm[(ix - 1) k + iy]` is the index in the partition of the cell `(ix, iy)`).
-"""
-function grid_order(domain::IntervalBox{2}, depth::Int)
-    k = 2^depth
-    _, grid_to_box = build_grid_index_maps(build_uniform_partition(domain, depth), (k, k))
-    return vec(grid_to_box)                 # grid_to_box[iy, ix], column major
-end
-
-"""
-    noisy_operator(L_lo, U, N::SquareNoise) -> (op::LinOp, info)
-
-The operator `P_δ = N L` of the file docstring as a `LinOp` of `RigorousPseudospectra`, for
-`L_lo` and `U` in grid order: the products `y ↦ fl(N fl(L̂ y))` and `y ↦ fl(L̂ᵀ fl(N y))` with
-`L̂ = fl(L_lo + U/2)`, the constant `η` of the file docstring turned into the relative `ε_A = η/a_lo`
-of the `LinOp` model with `a_lo ≤ ‖P_δ‖₂` from `norm_lower`, and the underflow term `η_A` of
-`w + nnz_per_row(N)` products per entry.  `info` holds `L̂`, the two products as functions of a
-vector (`Amul`, `Aadj`), the product column by column of a matrix, `Bmul!(Y, X)` setting
-`Y = fl(N fl(L̂ X))` with the same arithmetic per column as `Amul` and so the same rounding model,
-the pieces of `η`, and the ℓ¹ constants `η1`, `eta1A` of the file
-docstring with `colL = ‖L̂‖₁` and `colE = ‖E‖₁`.
+The operator `P_h = N L` of the file docstring, for `L_lo` and `U` in grid order: `info` holds
+`L̂ = fl(L_lo + U/2)` (`Lhat`), the product `Amul(x) = fl(N fl(L̂ x))` on a vector, the product
+column by column of a matrix, `Bmul!(Y, X)` setting `Y = fl(N fl(L̂ X))` with the same arithmetic
+per column as `Amul` and so the same rounding model, `w` and `γ_w` (`γw`), `γ_N` (`γN`),
+`colL ≥ ‖L̂‖₁`, `colE ≥ ‖E‖₁`, the number of nonzeros of `L̂` (`nnzL`), and the constants `η1`,
+`eta1A` of the file docstring.
 """
 function noisy_operator(L_lo::SparseMatrixCSC{Float64,Int}, U::SparseMatrixCSC{Float64,Int},
         N::SquareNoise)
@@ -154,18 +125,12 @@ function noisy_operator(L_lo::SparseMatrixCSC{Float64,Int}, U::SparseMatrixCSC{F
     n == N.k^2 || throw(DimensionMismatch("the matrices are $n × $n and the noise is on $(N.k^2) cells"))
     Lhat = dropzeros!(L_lo + U / 2)
     E = dropzeros!(max.(sub_up.(Lhat, L_lo), sub_up.(add_up.(L_lo, U), Lhat)))
-    Lt = sparse(transpose(Lhat))
-    w = max(1, RP._stencil_width(Lhat))
+    w = max(1, _stencil_width(Lhat))
     γw = gamma_bound(w, Float64)
-    εL = mul_up(sqrt_up(Float64(w)), γw)
-    colL, colE = RP._max_colsum_up(Lhat), RP._max_colsum_up(E)
-    normL = sqrt_up(mul_up(colL, RP._max_colsum_up(Lt)))
-    λ = sqrt_up(mul_up(colE, RP._max_colsum_up(sparse(transpose(E)))))
+    colL, colE = _max_colsum_up(Lhat), _max_colsum_up(E)
     γN = N.γ
-    η = add_up(λ, mul_up(normL, add_up(εL, mul_up(γN, add_up(1.0, εL)))))
     η1 = add_up(colE, mul_up(colL, add_up(γw, mul_up(γN, add_up(1.0, γw)))))
     Amul(x) = apply!(N, Lhat * Vector{Float64}(x))
-    Aadj(x) = Lt * apply!(N, Vector{Float64}(x))
     function Bmul!(Y::Matrix{Float64}, X::Matrix{Float64})
         mul!(Y, Lhat, X)
         buf = Vector{Float64}(undef, n)
@@ -175,11 +140,41 @@ function noisy_operator(L_lo::SparseMatrixCSC{Float64,Int}, U::SparseMatrixCSC{F
         end
         return Y
     end
-    etaA = RP._eta_stored(n, w + N.nnz_per_row, Float64)
+    etaA = _eta_stored(n, w + N.nnz_per_row)
     eta1A = mul_up(sqrt_up(Float64(n)), etaA)
-    a_lo = norm_lower(Amul, n, η, etaA)
-    epsA = div_up(η, a_lo)
-    op = LinOp(Amul, Aadj, n; epsA, etaA)
-    return op, (; Lhat, Amul, Aadj, Bmul!, w, εL, normL, λ, γN, η, etaA, a_lo, epsA, nnzL = nnz(Lhat),
-        colL, colE, η1, eta1A)
+    return (; Lhat, Amul, Bmul!, w, γw, γN, nnzL = nnz(Lhat), colL, colE, η1, eta1A)
+end
+
+# The three helpers below are those of RigorousPseudospectra (src/operator.jl at 283c1b2, where
+# they are private), moved here unchanged when this package stopped depending on it, so that the
+# constants of the records stay bit for bit (test/test_records.jl).
+# checked: BallArithmetic.upper_bound_L1_opnorm -- takes a dense BallMatrix, not a SparseMatrixCSC
+
+"The largest number of nonzeros in a row or a column of `A`."
+function _stencil_width(A::SparseMatrixCSC)
+    wc = maximum(diff(A.colptr); init = 0)
+    rows = zeros(Int, size(A, 1))
+    for r in rowvals(A)
+        rows[r] += 1
+    end
+    return max(wc, maximum(rows; init = 0))
+end
+
+"An upper bound on the largest column sum of `|A|`, summed upward over the stored entries."
+function _max_colsum_up(A::SparseMatrixCSC)
+    vals = nonzeros(A)
+    return maximum(j -> sum_up(abs(vals[p]) for p in nzrange(A, j)), 1:size(A, 2); init = 0.0)
+end
+
+"""
+    _eta_stored(n, w) -> η_A
+
+An upper bound on the ℓ² norm of the underflow error of a product with `n` entries of `w` terms
+each, `√n · 4w · η` with `η` the smallest subnormal double, upward (the factor 4 is the one of
+RigorousPseudospectra, which also covers complex data).
+"""
+function _eta_stored(n, w)
+    η = subnormal_min(Float64)
+    c = 4.0
+    return mul_up(sqrt_up(Float64(n)), mul_up(c * w, η))
 end

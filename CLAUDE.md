@@ -1,81 +1,31 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code in this repository.
 
-## Project Overview
+## What this is
 
-RigorousUlam2D.jl is a Julia package for computing mathematically verified bounds on transfer operators of 2D dynamical systems using the Ulam method with interval arithmetic. It provides guaranteed enclosures via `IntervalArithmetic.jl` and `ForwardDiff.jl`.
+The code of the paper in `~/Write/RigorousUlam2D` (`.links`): certified Ulam approximation of the
+stationary densities of maps of the two-torus with additive uniform noise, and certified L¹ bounds
+on the distance between the computed density and the stationary one.  `README.md` lists the
+stages; `PIPELINE` the drivers and what they write; `AUDITS.md` the audits that passed.
 
-## Common Commands
+## Rules specific to this package
+
+- Every number of the paper comes from a CertifiedRecords record written by a driver in `bench/`
+  (or `paper/figures.jl`) at a commit that contains it.  Do not change the arithmetic of
+  `src/noisy_operator.jl`, `src/norms_of_powers.jl`, `src/l1_error.jl`, `src/transition_graph.jl`
+  or `src/maps.jl` without running `test/test_records.jl` on a machine that holds the records
+  (ibis), which recomputes the cheap parts of the records behind the table bit for bit.
+- A change to audited code says in its commit message whether the entry of `AUDITS.md` still holds.
+- Notation follows the paper: `Var` isotropic variation, `var₁`, `var₂` coordinate variations,
+  `var12ρ = var₁(ρ_ξ) + var₂(ρ_ξ)`, `θ_h = (h/2) var12ρ`; the paper's `δ` is `h`, its `ξ` is `2a`.
+- Heavy runs (column sweeps, depth-12 blocks and densities) on ibis or albatross, not nighthawk.
+- Matrices are column-stochastic, `P[i, j]` the transition from cell `j` to cell `i`; blocks are
+  indexed as `build_uniform_partition`, the noisy operator in grid order (`grid_order`).
+
+## Commands
 
 ```bash
-# Run tests
 julia --project=. -e 'using Pkg; Pkg.test()'
-
-# Run a single test file
-julia --project=. test/test_spectral_analysis.jl
-
-# Run an example (examples use their own Project.toml)
-julia --project=examples examples/01_contracting_map.jl
-
-# Interactive REPL
-julia --project=.
-
-# Format code (uses SciML style)
-julia -e 'using JuliaFormatter; format("src/")'
+julia --project=. test/test_records.jl          # the records check alone (needs the data)
 ```
-
-## Code Style
-
-Uses JuliaFormatter with `style = "sciml"`. Key conventions:
-- 4-space indentation
-- No trailing whitespace
-- Matrix convention: `P[i,j]` = transition probability from box j to box i (column-stochastic)
-
-## Architecture
-
-### Operator Composition Pattern
-
-The central design is **P_noisy = N * P_det** (operator decomposition):
-
-1. **Adaptive partition** (`build_adaptive_partition`) — returns `(partition, dynamical_graph, topological_graph)`. The graphs encode sparsity: which box pairs can have nonzero transitions.
-2. **Deterministic transition matrix** (`build_transition_matrix`) — uses `dynamical_graph` to skip impossible pairs; calls `rel_size` for each candidate pair to get rigorous lower/upper bounds.
-3. **Noise convolution operator** (`build_noise_convolution_operator` or `build_grid_aligned_noise_operator`) — uses `topological_graph`; grid-aligned version is 10-100x faster when noise width divides domain evenly.
-4. **Compose**: `P = N * P_det` then `normalize_columns!(P)`.
-
-### Enclosure Methods
-
-- `zeroth_order_enclosure(F, box)` — pure interval arithmetic evaluation
-- `first_order_enclosure(F, box)` — mean value form via ForwardDiff (tighter bounds, preferred default)
-
-### Key Type
-
-`UlamPartition{N,T,I}` wraps a `Vector{IntervalBox{N,T,I}}` with the domain. All matrices are `SparseMatrixCSC`.
-
-### Module Organization (src/)
-
-| File | Responsibility |
-|------|---------------|
-| `partition_utils.jl` | Box ops, bisection, `build_uniform_partition`, `build_adaptive_partition` |
-| `adaptive_refinement.jl` | `rel_size` algorithm (priority queue refinement for transition bounds) |
-| `sparse_ulam.jl` | `build_transition_matrix`, `normalize_columns!`, `UlamPartition` type |
-| `noise_convolution.jl` | Minkowski sum, noise operators (general + grid-aligned) |
-| `boundary_conditions.jl` | `wrap_to_torus`, `apply_periodic_bc` for periodic domains |
-| `spectral_analysis.jl` | `operator_norm_on_V`, `rigorous_error_bound`, spectral gap estimation |
-
-### Test Organization
-
-8 test files in `test/` (~218 tests) covering all modules. `test/runtests.jl` includes them all.
-
-### Examples
-
-5 examples in `examples/` (01-05), each standalone. They use CairoMakie for visualization and Arpack for eigenvalues — these deps live in `examples/Project.toml`.
-
-## Important Implementation Details
-
-- `build_adaptive_partition` returns **3 values** (partition, dynamical_graph, topological_graph), not 2.
-- `build_transition_matrix` raises an error if noise is passed — use operator composition instead.
-- Grid-aligned noise requires `noise_width[i] = domain_width[i] / 2^k[i]` (validated at construction).
-- `wrap_to_torus` returns full domain interval when wrapping is ambiguous (conservative).
-- Plotting large partitions: use vectorized `Rect2f` + single `poly!` call, not per-box loops (hangs for >1000 boxes).
-- Julia compat: `>= 1.12`.

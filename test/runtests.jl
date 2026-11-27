@@ -31,14 +31,7 @@ using Test
     end
 
     # Include component tests
-    include("test_partition_utils.jl")
-    include("test_adaptive_refinement.jl")
-    include("test_sparse_ulam.jl")
-    include("test_noise_convolution.jl")
-    include("test_grid_aligned_noise.jl")
-    include("test_domain_restriction.jl")
-    include("test_ulam_discretization.jl")
-    include("test_haar_wavelet.jl")
+    include("test_grid.jl")
     include("test_transition_graph.jl")
     include("test_maps.jl")
     include("test_experiments.jl")
@@ -47,6 +40,7 @@ using Test
     include("test_norms_of_powers.jl")
     include("test_archive.jl")
     include("test_deposit.jl")
+    include("test_records.jl")
 
 end
 

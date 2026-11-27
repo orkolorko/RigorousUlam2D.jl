@@ -27,7 +27,7 @@ using Serialization: deserialize
                                      area = sys.area), 4; level = 6)
         P = noisy_ulam_operator(sys, blk, 4, 3 // 8)
         perm = grid_order(sys.domain, 4)
-        _, info = noisy_operator(blk.L_lo[perm, perm], blk.U[perm, perm], SquareNoise(sys.domain, 4, 0.375; slots = 1))
+        info = noisy_operator(blk.L_lo[perm, perm], blk.U[perm, perm], SquareNoise(sys.domain, 4, 0.375; slots = 1))
         x = rand(P.n)
         @test P.info.Amul(x) == info.Amul(x) && P.normP >= 1
     end

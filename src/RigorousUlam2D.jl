@@ -1,3 +1,23 @@
+"""
+The certified Ulam approximation of the stationary density of a map of the two-torus with additive
+uniform noise, and the certified L¹ distance between the computed density and the stationary one:
+the computations of Section 6 ("Examples") of Pacifico, Bioni Liberalquino, Nisoli, "Stationary
+densities of random maps with additive BV noise: existence, regularity and certified Ulam
+approximation".
+
+The stages, each in its own file:
+
+- `grid.jl`: the uniform dyadic grids and the two orders of their cells;
+- `transition_graph.jl`: the enclosure `L_lo ≤ L ≤ L_lo + U` of the Ulam matrix of a map
+  (`UlamTree`, `refine!`, `ulam_matrices`, `fibred_area`);
+- `maps.jl`: the maps of the paper's examples;
+- `noisy_operator.jl`: the noisy Ulam operator `P_h = π N_ξ π L π`, matrix-free, with its ℓ¹
+  rounding model;
+- `norms_of_powers.jl`: `C_j ≥ ‖P_h^j|_{V_h}‖₁` by iterating every column;
+- `l1_error.jl`: the computed density, its residuals, the coarse-fine recursion and the L¹ bounds;
+- `experiments.jl`: the stages the drivers in `bench/` are thin over, and the names of their files;
+- `archive.jl`, `deposit.jl`: the archival copies and the deposit of the data.
+"""
 module RigorousUlam2D
 
 using ForwardDiff
@@ -6,65 +26,17 @@ using SparseArrays
 using LinearAlgebra
 import Serialization
 
-# Export enclosure methods
 export zeroth_order_enclosure, first_order_enclosure
 
-# Include submodules
-include("partition_utils.jl")
-include("adaptive_refinement.jl")
-include("sparse_ulam.jl")
-include("noise_convolution.jl")
-include("boundary_conditions.jl")
-include("spectral_analysis.jl")
-include("transfer_matvec.jl")
-include("haar_wavelet.jl")
-include("schur_norm_bounds.jl")
+include("grid.jl")
 include("transition_graph.jl")
 include("maps.jl")
 include("noisy_operator.jl")
+include("norms_of_powers.jl")
 include("l1_error.jl")
 include("experiments.jl")
 include("archive.jl")
 include("deposit.jl")
-
-# Re-export from submodules
-# Partition utilities
-export bisect_interval, bisect_box, quadrisect
-export issubset_box, isdisjoint_box, intersects, is_empty_box
-export box_measure, box_width, box_radius
-export expand_interval, intersect_boxes
-export build_uniform_partition, build_adaptive_partition
-
-# Adaptive refinement
-export rel_size
-
-# Sparse Ulam
-export build_transition_matrix, normalize_columns!, build_normalized_transition_matrix
-export UlamPartition, partition_index, estimate_sparsity
-
-# Noise convolution
-export minkowski_sum, noisy_image
-export uniform_noise_box, anisotropic_noise_box
-export build_noise_convolution_operator, noise_matvec, build_grid_index_maps
-
-# Boundary conditions
-export apply_periodic_bc, wrap_to_torus
-export noisy_image_periodic
-
-# Spectral analysis (Galatolo-Nisoli / ZZ paper)
-export operator_norm_on_V, operator_norm_on_V_power, find_contraction_power
-export rigorous_norm_on_V, rigorous_norm_on_V_power, higham_gamma
-export norms_of_powers_columns, norms_of_powers_sparse, norms_of_powers_matvec, refine_norms_of_powers
-export compute_stationary_density, spectral_gap
-export noise_coordinate_variations, noise_var12, ulam_approximation_error, rigorous_error_bound
-
-# Haar wavelet
-export HaarBasis2D, haar_forward!, haar_inverse!, haar_forward, haar_inverse
-export wavelet_matvec, wavelet_scale_ranges
-
-# Schur complement norm bounds
-export wavelet_operator_blocks, noise_attenuation_bound
-export schur_norms_of_powers, wavelet_rigorous_error_bound
 
 """
     zeroth_order_enclosure(F, box::IntervalBox)

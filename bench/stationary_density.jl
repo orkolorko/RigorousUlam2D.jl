@@ -12,7 +12,8 @@
 #     stationary_density.<map>_d<depth>_a<p>-<q>.<commit>.<host>.jls   the density (cell masses, grid order)
 #     stationary_density.<commit>.<host>.tsv   (CertifiedRecords) one row per (map, depth, a), the
 #                                              bounds as exact doubles
-# A configuration already in the record is not run again.
+# A configuration already in the record is not run again.  The column `seconds` is the wall-clock
+# time of the run, from reading the block to the record.
 # Every row names, in its column `environment`, the copy of the Manifest of the run written
 # beside the record by `save_environment`, with the commits of the dependencies given by path.
 #
@@ -54,7 +55,8 @@ defect = defect_apriori(P.h, P.var12ρ)
 
 Serialization.serialize(densfile, (; map = MAP, depth = DEPTH, a = A, density = fp.v, header, environment))
 open_record(record, header, ["map", "depth", "a", "n", "iterations", "converged", "eps1", "eps2", "var1f", "var2f", "defect",
-    "blockfile", "density_file", "environment"])
+    "blockfile", "density_file", "seconds", "environment"])
 append_record(record, [MAP, DEPTH, A, P.n, fp.iterations, fp.converged, write_endpoint(res.ε1)[1],
-    write_endpoint(res.ε2)[1], write_endpoint(cv.var1)[1], write_endpoint(cv.var2)[1], write_endpoint(defect)[1], basename(blkfile), basename(densfile), environment])
+    write_endpoint(res.ε2)[1], write_endpoint(cv.var1)[1], write_endpoint(cv.var2)[1], write_endpoint(defect)[1], basename(blkfile), basename(densfile),
+    round(time() - t0; digits = 1), environment])
 println("recorded in $(basename(record)), density in $(basename(densfile)) ($(round(time() - t0; digits = 1)) s)")

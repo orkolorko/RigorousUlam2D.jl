@@ -7,12 +7,16 @@ side `h`, and between `f_ξ` and a computed vector `f̃`, from bounds on the nor
 Vectors are in the grid order of `noisy_operator.jl` and hold cell masses: the function with
 values `m_i / h²` on the cells, `‖f‖_{L¹} = Σ|m_i|`.
 
-**The constants.** For `ρ_ξ` the uniform density on `[-a, a]²`, `var_i(ρ_ξ) = 1/a` is its variation
-in the direction `e_i`, and `var₁₂(ρ_ξ) := var₁(ρ_ξ) + var₂(ρ_ξ) = 2/a`.  On the grid of squares of
-side `h` (math/local_ly_2d.tex, Lemma "square cell" and Proposition "two projection constants"):
+**Notation.** The paper's grid side `δ` is `h` here, its noise size `ξ` is `2a`: `ρ_ξ` is the
+uniform density on `[-a, a]² = [-ξ/2, ξ/2]²`.  `var_i` is the variation in the direction `e_i`,
+`Var` the isotropic variation, which nothing here computes, and `var₁₂ := var₁ + var₂`.  For `ρ_ξ`, `var_i(ρ_ξ) = 2/ξ = 1/a` (lem:square_variation), so
+`var₁₂(ρ_ξ) = 2/a`, and
 
-    ‖(I − π_h) N_ξ‖₁ ≤ (h/2) var₁₂(ρ_ξ),   ‖N_ξ (I − π_h)‖₁ ≤ (h/2) var₁₂(ρ_ξ),
-    ‖(I − π_h) f‖₁ ≤ (h/2) var₁₂(f).
+    θ_h = (h/2) var₁₂(ρ_ξ)
+
+is the `θ_δ` of Theorem C (thm:ulam), which gives
+
+    ‖(I − π_h) N_ξ‖₁ ≤ θ_h,   ‖N_ξ (I − π_h)‖₁ ≤ θ_h,   ‖(I − π_h) f‖₁ ≤ (h/2) var₁₂(f).
 
 **The scheme.** With `e := f_ξ − f_h ∈ V` (both densities integrate to one),
 
@@ -22,9 +26,9 @@ so `‖e‖₁ ≤ Σ_V · ‖(L_ξ − P_h) f_ξ‖₁` with `Σ_V ≥ ‖(I �
 
 **The defect** (`defect_apriori`). Writing
 `L_ξ − P_h = (I − π_h) N_ξ L_T + π_h N_ξ (I − π_h) L_T + π_h N_ξ π_h L_T (I − π_h)`, the first two
-terms are at most `(h/2) var₁₂(ρ_ξ)` each on a density, and the third at most
-`(h/2)var₁₂(f_ξ)`; `f_ξ = N_ξ (L_T f_ξ)` gives `var_i(f_ξ) ≤ var_i(ρ_ξ)` (Lemma "moll" there), so
-`‖(L_ξ − P_h) f_ξ‖₁ ≤ (3h/2) var₁₂(ρ_ξ)` a priori.
+terms are at most `θ_h` each on a density, and the third at most `(h/2) var₁₂(f_ξ)`;
+`f_ξ = N_ξ (L_T f_ξ)` gives `var_i(f_ξ) ≤ var_i(ρ_ξ)` (Theorem C, item 3), so
+`‖(L_ξ − P_h) f_ξ‖₁ ≤ 3θ_h = (3h/2) var₁₂(ρ_ξ)` a priori (prop:l1error with `θ₁ = θ₂ = θ_h`).
 
 **The resolvent on `V`.** For `v ∈ V`, `(I − P_h)⁻¹ v = v + (I − P_h)⁻¹ P_h v` with
 `P_h v ∈ V_h`, the zero-sum grid vectors, and `‖P_h v‖₁ ≤ ‖v‖₁`; so `Σ_V ≤ 1 + Σ_grid` with
@@ -70,8 +74,8 @@ Upper bounds on `var₁(f)` and `var₂(f)`, the variations in the directions `e
 torus of the function `f` constant on the cells with masses `m` (grid order, `k × k` cells of
 side `h`, `M[iy, ix]`): the jump `|m_i − m_j| / h²` across an edge of length `h`, summed over the
 `k²` edges normal to `e₁` (between horizontal neighbours) for `var₁` and over those normal to `e₂`
-for `var₂`, every operation upward.  `var₁₂(f) = var₁(f) + var₂(f)` is what the cell estimates of
-math/local_ly_2d.tex use; the isotropic variation `Var(f)` is not computed here.
+for `var₂`, every operation upward.  `var₁₂(f) = var₁(f) + var₂(f)` is what Theorem C (item 1)
+uses; the isotropic variation `Var(f)` is not computed here.
 """
 function coordinate_variations(m::AbstractVector{Float64}, k::Int, h::Float64)
     length(m) == k * k || throw(DimensionMismatch("expected $(k * k) masses, got $(length(m))"))
@@ -165,7 +169,7 @@ end
 """
     defect_apriori(h, var12ρ) -> bound
 
-`‖(L_ξ − P_h) f_ξ‖₁ ≤ (3h/2) var₁₂(ρ_ξ)` on the grid of squares of side `h`, with
+`‖(L_ξ − P_h) f_ξ‖₁ ≤ 3θ_h = (3h/2) var₁₂(ρ_ξ)` on the grid of squares of side `h`, with
 `var₁₂(ρ_ξ) = var₁(ρ_ξ) + var₂(ρ_ξ)`; see the file docstring.  Upward.
 """
 defect_apriori(h::Float64, var12ρ::Float64) = mul_up(mul_up(1.5, h), var12ρ)
@@ -177,10 +181,11 @@ Bounds `F_k ≥ ‖Λ^k|_V‖_{L¹}`, `k = 1, …, length(C) + 1`, for `Λ = σ 
 Ulam projection of any dyadic refinement of the grid of squares of side `h`, or the identity
 (`Λ = L_ξ`), from bounds `C_k ≥ ‖P_h^k|_{V_h}‖₁` for the coarse `P_h = π_h N_ξ π_h L_T π_h`
 (`norms_of_powers_columns`; they bound `‖P_h^k|_V‖₁` as well, `P_h` ending with `π_h`).  It is the
-recursion of math/local_ly_2d.tex, Proposition "recursion" (Galatolo, Monge, Nisoli 2020,
-Lemma 29 with (36), with the two constants kept apart), as `norms_of_powers_recursive_noise(a,
-b, C)` of RigorousInvariantMeasures, with `a ≥ ‖(I − π_h) N_ξ‖₁` and `b ≥ ‖N_ξ (I − π_h)‖₁` both
-`(h/2) var₁₂(ρ_ξ)`, rounded upward.  `first ≥ ‖Λ‖` on `V`; 1 for a Markov operator.
+recursion eq:coarsefine of prop:coarsefine (after Galatolo, Monge, Nisoli 2020, Lemma 29 with
+(36), with the two constants kept apart), as `norms_of_powers_recursive_noise(θ₁, θ₂, C)` of
+RigorousInvariantMeasures, with `θ₁ ≥ ‖(I − π_h) N_ξ‖₁` and `θ₂ ≥ ‖N_ξ (I − π_h)‖₁` both
+`θ_h = (h/2) var₁₂(ρ_ξ)`, rounded upward.  `first ≥ ‖Λ‖` on `V` is the `F_1` of
+eq:coarsefine; 1 for a Markov operator.
 """
 function coarse_fine_norms(C::AbstractVector{<:Real}, h::Float64, var12ρ::Float64; first::Real = 1.0)
     c = mul_up(0.5 * h, var12ρ)                   # h/2 is exact
@@ -198,13 +203,12 @@ end
     (I − L_ξ)(u − f_ξ) = (u − P_h u) + (P_h − L_ξ) u;
 
 in `L_ξ − P_h = (I − π_h) N_ξ L + π_h N_ξ (I − π_h) L + π_h N_ξ π_h L (I − π_h)` the last term
-vanishes on `u`, which `π_h` fixes, and the other two are at most `(h/2) var₁₂(ρ_ξ)` each
-(`‖u‖₁ = 1`; file docstring).  Hence
+vanishes on `u`, which `π_h` fixes, and the other two are at most `θ_h` each (`‖u‖₁ = 1`; file
+docstring).  Hence, as in prop:l1error with `θ₁ = θ₂ = θ_h`,
 
     ‖u − f_ξ‖₁ ≤ Σ (h var₁₂(ρ_ξ) + ε1/(1 − ε2)),   ‖f̃ − u‖₁ = |Σf̃ − 1| ≤ ε2,
 
-and the bound is their sum, rounded upward; against `Σ · (3h/2) var₁₂(ρ_ξ)` of the direct route it
-spends `h` in place of `3h/2`.
+and the bound is their sum, rounded upward; against `3Σθ_h` of the direct route it spends `2θ_h`.
 """
 function swapped_error(Σ::Float64, h::Float64, var12ρ::Float64, ε1::Float64, ε2::Float64)
     ε2 < 1 || throw(ArgumentError("the mass defect ε2 = $ε2 must be below 1"))

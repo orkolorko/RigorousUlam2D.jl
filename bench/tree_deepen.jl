@@ -13,7 +13,8 @@
 # script, commits, julia, threads, time) with the matrices indexed as build_uniform_partition(domain, d);
 # the store in ~/ResearchData/RigorousUlam2D_Data/bulk/tree_deepen.<map>_d<D0>-<D1>.store.<host>/;
 # and a record (CertifiedRecords) data/tree_deepen.<commit>.<host>.tsv, one row per file, with the
-# counts and the widths of U as floating-point diagnostics.
+# counts and the widths of U as floating-point diagnostics, `read_seconds` (the reading at LEVEL)
+# and `seconds` (the wall clock from the start of the run, store refinement included).
 # One log line per depth on stdout: counts, column sums, the widths of U.
 # Every row names, in its column `environment`, the copy of the Manifest of the run written
 # beside the record by `save_environment`, with the commits of the dependencies given by path.
@@ -82,9 +83,9 @@ for m in mats
         threads = Threads.nthreads(), time = tr))
     # diagnostics, summed in floating point: not bounds
     open_record(record, header, ["map", "depth", "level", "bisect", "xinv", "d1", "nnz_L_lo", "nnz_U",
-        "colsum_L_lo_min_fl", "colsum_L_hi_max_fl", "U_1_fl", "U_inf_fl", "read_seconds", "file", "environment"])
+        "colsum_L_lo_min_fl", "colsum_L_hi_max_fl", "U_1_fl", "U_inf_fl", "read_seconds", "seconds", "file", "environment"])
     append_record(record, [MAP, m.depth, LEVEL, BISECT, XINV, D1, nnz(m.L_lo), nnz(m.U), lo[1], hi[2],
-        colmax(m.U), rowmax(m.U), round(tr; digits = 1), basename(outfile(m.depth)), environment])
+        colmax(m.U), rowmax(m.U), round(tr; digits = 1), round(time() - t0; digits = 1), basename(outfile(m.depth)), environment])
     flush(stdout)
 end
 @printf("total %.1f s\n", time() - t0)

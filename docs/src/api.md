@@ -1,94 +1,82 @@
-# API Reference
+# API reference
 
 ```@meta
 CurrentModule = RigorousUlam2D
 ```
 
-## Enclosure Methods
-
-Functions for computing rigorous interval enclosures of function images.
-
-See the **Enclosure Methods** page in the User Guide for detailed documentation.
-
-## Partition Utilities
-
-Functions for managing and manipulating interval boxes and partitions.
-
-```@docs
-bisect_interval
-bisect_box
-quadrisect
-issubset_box
-isdisjoint_box
-intersects
-is_empty_box
-box_measure
-box_width
-box_radius
-expand_interval
-intersect_boxes
-```
-
-## Domain Restriction
-
-Optimization functions for computing on effective domains.
-
-See the **Domain Restriction** page in the User Guide for detailed documentation.
-
-## Adaptive Refinement
-
-Core algorithm for computing rigorous transition probabilities.
-
-```@docs
-rel_size
-build_adaptive_partition
-build_uniform_partition
-```
-
-## Sparse Transition Matrices
-
-Functions for building and managing sparse Ulam discretization matrices.
+## Grids and enclosures
 
 ```@docs
 UlamPartition
-build_transition_matrix
-normalize_columns!
-build_normalized_transition_matrix
-partition_index
-estimate_sparsity
+bisect_interval
+bisect_box
+quadrisect
+build_uniform_partition
+grid_order
+wrap_to_torus
+zeroth_order_enclosure
+first_order_enclosure
 ```
 
-## Noise Convolution
-
-Support for additive noise through Minkowski sums.
-
-See the **Noise and Boundary Conditions** page in the User Guide for detailed documentation.
-
-## Boundary Conditions
-
-Periodic boundary conditions for systems on the torus.
-
-See the **Noise and Boundary Conditions** page in the User Guide for detailed documentation.
-
-## Spectral Analysis
-
-Rigorous operator norm estimation on zero-average space and error bounds for stationary density approximation. Implements results from Galatolo-Monge-Nisoli-Poloni (2014) and the ZZ paper (Pacifico-Liberalquino-Nisoli).
+## The deterministic block
 
 ```@docs
-operator_norm_on_V
-rigorous_norm_on_V
-operator_norm_on_V_power
-rigorous_norm_on_V_power
-find_contraction_power
-compute_stationary_density
-spectral_gap
-noise_variation
-ulam_approximation_error
-rigorous_error_bound
-higham_gamma
+UlamTree
+refine!
+repair!
+ulam_matrices
+ulam_hierarchy
+transition_graph
+fibred_area
 ```
 
-## Index
+## The maps of the examples
 
-```@index
+```@docs
+henon_system
+lorenz_system
+metzger_lorenz_system
+ulam_system
+```
+
+## The noisy operator and the norms of its powers
+
+```@docs
+SquareNoise
+noisy_operator
+noisy_ulam_operator
+grid_constants
+norms_of_powers_columns
+norms_of_powers_sparse
+```
+
+## The L¹ bounds
+
+```@docs
+ulam_fixed_point
+fixed_point_residual
+fixed_point_distance
+coordinate_variations
+x_marginal
+sigma_from_norms
+defect_apriori
+coarse_fine_norms
+swapped_error
+```
+
+## Records, archival copies and the deposit
+
+```@docs
+block_file
+record_file
+file_sha256
+record_column_sweep
+write_density_hdf5
+DENSITY_HDF5_ORDERING
+write_block_hdf5
+BLOCK_HDF5_FORMAT
+BLOCK_HDF5_SCRIPT
+DATAVERSE_FILE_LIMIT
+deposit_plan
+write_manifest
 ```

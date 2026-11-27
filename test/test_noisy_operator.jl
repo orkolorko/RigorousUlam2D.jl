@@ -1,6 +1,5 @@
 using Test, RigorousUlam2D, IntervalArithmetic, IntervalBoxes, LinearAlgebra, SparseArrays, Random
 using RigorousInvariantMeasures: RigorousInvariantMeasures
-using RigorousPseudospectra: LinOp
 const RIMt = RigorousInvariantMeasures
 
 # the dense matrix of a one-dimensional kernel, by columns
@@ -59,7 +58,7 @@ dense2d(N, n) = hcat([N * Matrix{Float64}(I, n, n)[:, j] for j in 1:n]...)
         end
     end
 
-    @testset "noisy_operator and its constant" begin
+    @testset "noisy_operator and its ℓ¹ constants" begin
         henon = (x, y) -> ((1 - 1.4 * (1.5x)^2 + 0.5y) / 1.5, (0.3 * 1.5x) / 0.5)
         h = ulam_hierarchy(henon, dom, d, d; leaf_depth = 4, bc = :periodic,
             enclosure_method = zeroth_order_enclosure)[1]
@@ -67,35 +66,33 @@ dense2d(N, n) = hcat([N * Matrix{Float64}(I, n, n)[:, j] for j in 1:n]...)
         L_lo, U = h.L_lo[perm, perm], h.U[perm, perm]
         @test any(>(0), U)                          # the enclosure is not trivial at this depth
         N = SquareNoise(dom, d, 0.5; slots = 2)
-        op, info = noisy_operator(L_lo, U, N)
-        @test op.n == n && op.epsA > 0 && op.etaA > 0
+        info = noisy_operator(L_lo, U, N)
         @test info.Lhat ≈ L_lo + U / 2
-        # λ bounds ‖L̂ − L‖₂ at the two ends of the enclosure
-        @test opnorm(Matrix(info.Lhat - L_lo)) <= info.λ
-        @test opnorm(Matrix(L_lo + U - info.Lhat)) <= info.λ
-        @test info.epsA * info.a_lo >= info.η
-        # the products, against the dense operator and each other
+        # colE bounds ‖L̂ − L‖₁ at the two ends of the enclosure, colL bounds ‖L̂‖₁
+        @test opnorm(Matrix(info.Lhat - L_lo), 1) <= info.colE
+        @test opnorm(Matrix(L_lo + U - info.Lhat), 1) <= info.colE
+        @test opnorm(Matrix(info.Lhat), 1) <= info.colL
+        @test info.w == max(maximum(diff(info.Lhat.colptr)), maximum(count(!iszero, Matrix(info.Lhat); dims = 2)))
+        # the products, against the dense operator, and Bmul! column by column
         Nd = dense2d(N, n)
         Ad = Nd * Matrix(info.Lhat)
         Random.seed!(1)
-        for _ in 1:5
-            x, y = randn(n), randn(n)
-            Ax = zeros(n); op.mul!(reshape(Ax, n, 1), reshape(x, n, 1))
-            Ay = zeros(n); op.adj!(reshape(Ay, n, 1), reshape(y, n, 1))
-            @test Ax ≈ Ad * x
-            @test Ay ≈ Ad' * y
-            @test dot(Ax, y) ≈ dot(x, Ay)
+        X = randn(n, 5); Y = zeros(n, 5)
+        info.Bmul!(Y, X)
+        for c in 1:5
+            @test info.Amul(X[:, c]) ≈ Ad * X[:, c]
+            @test Y[:, c] == info.Amul(X[:, c])
         end
-        # the rounding part of η: against the product in 256-bit arithmetic
+        # the rounding part of η₁, η₁ − ‖E‖₁ with L = L̂: against the product in 256-bit arithmetic
         K = RIMt.UlamProjectedUniformKernel(Val(:periodic), BigFloat, B, 0.5)
         Kb = dense1d(K, k, BigFloat)
         Nb = kron(Kb, Kb)
         Lb = Matrix{BigFloat}(info.Lhat)
         for _ in 1:5
             x = randn(n)
-            Ax = zeros(n); op.mul!(reshape(Ax, n, 1), reshape(x, n, 1))
             exact = Nb * (Lb * BigFloat.(x))
-            @test norm(Float64.(BigFloat.(Ax) - exact)) <= (info.η - info.λ) * norm(x)
+            @test Float64(sum(abs, BigFloat.(info.Amul(x)) - exact), RoundUp) <=
+                  (info.η1 - info.colE) * sum(abs, x) + info.eta1A
         end
     end
 end

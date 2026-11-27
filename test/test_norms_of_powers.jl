@@ -29,7 +29,7 @@ end
         @test norms_of_powers_sparse(P, 1; u = [0.5, 0.5, 0.0])[1] >= 1
     end
 
-    @testset "matvec, sparse and blocks agree" begin
+    @testset "sparse and blocks agree, against the exact norm" begin
         Random.seed!(3)
         n = 20
         P = sprand(n, n, 0.3) + sparse(I, n, n); P = P ./ sum(P; dims = 1)
@@ -38,12 +38,6 @@ end
         Cs = norms_of_powers_sparse(P, 5; u, block = 7)
         Cs1 = norms_of_powers_sparse(P, 5; u, block = 1)
         @test Cs == Cs1
-        w = RigorousUlam2D.max_nonzeros_per_row(P)
-        nP = RigorousUlam2D.RigorousPseudospectra._max_colsum_up(P)
-        η1 = RigorousUlam2D.mul_up(RigorousUlam2D.gamma_bound(w, Float64), nP)
-        eta1A = RigorousUlam2D.mul_up(sqrt(Float64(n)) * (1 + eps()), RigorousUlam2D.RigorousPseudospectra._eta_stored(n, w, Float64))
-        Cm = norms_of_powers_matvec(v -> P * v, n, 5; η1, eta1A, normP = nP, u)
-        @test Cm ≈ Cs rtol = 1e-12
         @test all(Cs .>= [exact_norm_on_V(Matrix(P), k) for k in 1:5])
     end
 
@@ -61,20 +55,21 @@ end
         @test r[2] >= big(a) * big(a)
     end
 
-    @testset "the noisy operator: Bmul! is Amul column by column" begin
+    @testset "the noisy operator: blocks of any size give the same bounds" begin
         dom = IntervalBox(interval(-1.0, 1.0), interval(-1.0, 1.0))
         d = 3; k = 2^d; n = k * k
         Random.seed!(11)
         L = sprand(n, n, 0.08) + sparse(I, n, n); L = sparse(L ./ sum(L; dims = 1))
         U = sparse(abs.(sprand(n, n, 0.02)) .* 1e-9)
         N = SquareNoise(dom, d, 0.25; bc = :periodic, slots = Threads.nthreads())
-        op, info = noisy_operator(L, U, N)
-        X = rand(n, 5); Y = zeros(n, 5)
-        info.Bmul!(Y, X)
-        @test all(Y[:, c] == info.Amul(X[:, c]) for c in 1:5)
+        info = noisy_operator(L, U, N)
         u = fill(1 / n, n)
         Cb = norms_of_powers_columns(info.Bmul!, n, 4; η1 = info.η1, eta1A = info.eta1A, u, block = 9)
-        Cv = norms_of_powers_matvec(info.Amul, n, 4; η1 = info.η1, eta1A = info.eta1A, u)
-        @test Cb == Cv
+        C1 = norms_of_powers_columns(info.Bmul!, n, 4; η1 = info.η1, eta1A = info.eta1A, u, block = 1)
+        @test Cb == C1
+        # split into two column ranges, the entrywise maximum is the whole run
+        Ca = norms_of_powers_columns(info.Bmul!, n, 4; η1 = info.η1, eta1A = info.eta1A, u, block = 9, cols = 1:23)
+        Cc = norms_of_powers_columns(info.Bmul!, n, 4; η1 = info.η1, eta1A = info.eta1A, u, block = 9, cols = 24:n)
+        @test max.(Ca, Cc) == Cb
     end
 end

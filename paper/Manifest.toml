@@ -1792,16 +1792,8 @@ version = "0.3.0"
     Symbolics = "0c5d862f-8b57-4792-8d23-62f2024744c7"
     TaylorModels = "314ce334-5f6e-57ae-acf6-00b6e903104a"
 
-[[deps.RigorousPseudospectra]]
-deps = ["BallArithmetic", "LinearAlgebra", "Random", "SparseArrays"]
-git-tree-sha1 = "78e7a920e7af93149217d9a6b7a21486aca76a27"
-repo-rev = "283c1b2ede5819e4d7e69894858a2ee4c06db14c"
-repo-url = "https://github.com/JuliaBallArithmetic/RigorousPseudospectra.jl.git"
-uuid = "63762aec-5db2-4bf6-a1b0-d46a1c2dd8e0"
-version = "0.1.0"
-
 [[deps.RigorousUlam2D]]
-deps = ["BallArithmetic", "CertifiedRecords", "DataStructures", "ForwardDiff", "IntervalArithmetic", "IntervalBoxes", "LinearAlgebra", "RigorousInvariantMeasures", "RigorousPseudospectra", "SHA", "Serialization", "SparseArrays"]
+deps = ["BallArithmetic", "CertifiedRecords", "Dates", "ForwardDiff", "IntervalArithmetic", "IntervalBoxes", "LinearAlgebra", "Printf", "RigorousInvariantMeasures", "SHA", "Serialization", "SparseArrays"]
 path = ".."
 uuid = "2cbaba54-1f7c-42c5-a2df-29a8df60aaff"
 version = "0.0.1-DEV"

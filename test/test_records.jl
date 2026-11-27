@@ -17,12 +17,18 @@
 # - the depth-8 row of the density record, from its block: the power iteration, ε₁, ε₂, the
 #   coordinate variations and the density itself.
 #
-# Not recomputed: the column sweeps themselves (hours on 16 threads each), the trees of
-# bench/tree_deepen.jl, and the depth-12 densities (their blocks are gigabytes).
+# Not recomputed: the column sweeps at depths 8 and 9 (2658 s on 16 threads of ibis for one at
+# depth 8), the trees of bench/tree_deepen.jl, and the depth-12 densities.
+#
+# The second testset recomputes whole column sweeps at depth 6: the records
+# l1_mixing.<map>_d6_a<p>-<q>.nighthawk.jls of the L¹ column sweep of 2026-11-16 (RigorousUlam2D
+# b1f7625, held on nighthawk only), whose η₁, η₁ᴬ, ‖P_h‖₁ bound and C_j are compared bit for bit
+# with those of `noisy_ulam_operator` and `norms_of_powers_columns` on the same block and density.
 
 using Test, RigorousUlam2D, CertifiedRecords
 using BallArithmetic: add_up, mul_up
 import Serialization
+using SparseArrays
 
 const RECDIR = expanduser(get(ENV, "RIGOROUSULAM2D_DATADIR", "~/ResearchData/RigorousUlam2D_Data/data"))
 
@@ -124,6 +130,26 @@ _params(hdr) = Dict(m.captures[1] => strip(m.captures[2])
                     end
                 end
             end
+        end
+    end
+end
+
+@testset "the depth-6 sweeps of 2026-11-16, recomputed" begin
+    files = isdir(RECDIR) ? filter(f -> occursin(r"^l1_mixing\.\w+_d6_a[0-9]+-[0-9]+\.nighthawk\.jls$", f) && _have(f),
+                                   readdir(RECDIR)) : String[]
+    isempty(files) && (@info "test_records: no depth-6 sweep of 2026-11-16 on this machine"; @test true)
+    for f in files
+        r = Serialization.deserialize(joinpath(RECDIR, f))
+        (_have(r.block) && _have(r.u_from)) || continue
+        @testset "$(r.map) a = $(r.a)" begin
+            P = noisy_ulam_operator(ulam_system(r.map), Serialization.deserialize(joinpath(RECDIR, r.block)), r.depth, r.a)
+            @test (P.info.w, P.info.colL, P.info.colE, P.info.γN, P.info.η1, P.info.eta1A, P.normP) ==
+                  (r.operator.w, r.operator.colL, r.operator.colE, r.operator.γN, r.operator.η1, r.operator.eta1A, r.operator.normP)
+            u = Serialization.deserialize(joinpath(RECDIR, r.u_from)).density
+            C = norms_of_powers_columns(P.info.Bmul!, P.n, r.M; η1 = P.info.η1, eta1A = P.info.eta1A,
+                                        normP = P.normP, u, block = r.columns_per_block)
+            @test C == r.C
+            @test refine_norms_of_powers(C, r.M) == r.C_refined
         end
     end
 end

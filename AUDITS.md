@@ -1,5 +1,8 @@
 # Audits
 
+The commits named here are those before the history was rewritten on 2026-11-27 to remove four
+PDFs; `docs/commit-map.txt` gives the new hash of each (the code is unchanged).
+
 One entry per audit that passed: the commit audited, the date, what was checked, against what,
 and how. A change to audited code says in its commit message whether the entry still holds.
 Failures are listed under the audit that found them and are not passes.

@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### History rewritten (2026-11-27)
+
+Four PDFs that are not this project's to publish (a bachelor thesis, the publisher's PDFs of two
+papers, and the SIAM submission of the paper) were removed from the whole history with
+`git filter-repo`, before the repository was made public; they are kept in the author's library.
+Every commit from the first that added them has a new hash.  The commit hashes that the
+certified records, the figures, the Dataverse deposit doi:10.7910/DVN/2OTJ8O and AUDITS.md name are
+the old ones: `docs/commit-map.txt` maps each old hash to its new one (for example d78ed9d →
+a0f4afd, 172fde7 → 4a9f186, 2a75ede → 7732a78, 54dff0a → 49975db).  The trees of the rewritten
+commits differ from the old ones only by the four PDFs.
+
 ### Removed (2026-11-27, for publication with the paper)
 
 The API that the paper's computations do not use, with its tests: `rel_size`,

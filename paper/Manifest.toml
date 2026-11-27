@@ -2,7 +2,7 @@
 
 julia_version = "1.13.3"
 manifest_format = "2.1"
-project_hash = "6d5e9fce39194bff5905efaf5cb9b5d1a689720d"
+project_hash = "7d3faf367d7bd2e7f180b41f398c6abb1b173516"
 
 [[deps.AbstractFFTs]]
 deps = ["LinearAlgebra"]
@@ -250,9 +250,9 @@ uuid = "49dc2e85-a5d0-5ad3-a950-438e2897f1b9"
 version = "0.5.2"
 
 [[deps.CertifiedRecords]]
-deps = ["HTTP", "JSON", "MD5", "Printf", "SHA"]
-git-tree-sha1 = "2023e648f32d74cb7a705cbea71bccce438dc75e"
-repo-rev = "bc2d2243f9b8e96ce91464a65293293741295f36"
+deps = ["HTTP", "JSON", "LinearAlgebra", "MD5", "Printf", "SHA"]
+git-tree-sha1 = "aebc678c8b5699239dd6ad764b70bcab1ffb3b0d"
+repo-rev = "c6630f03faf8dcd5f1a86705fa986e8a81d52057"
 repo-url = "https://github.com/orkolorko/CertifiedRecords.jl.git"
 uuid = "a1382eeb-e40a-4ccf-aad2-2f06b8114ecb"
 version = "0.0.1-DEV"

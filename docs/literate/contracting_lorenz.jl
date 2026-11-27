@@ -145,7 +145,7 @@ end
 # ## The computed densities
 #
 # The density ``\tilde f`` of each noise size on the fine grid of this run, the cell masses
-# divided by the cell area; the title gives the certified bound on ``\|f_ξ - \tilde f\|_1``.  In
+# divided by the cell area, for each noise size with a finite bound; the title gives the certified bound on ``\|f_ξ - \tilde f\|_1``.  In
 # `records` mode nothing is drawn: the figures of the paper are drawn by `paper/figures.jl` of
 # RigorousUlam2D from the depth-12 densities.
 
@@ -157,6 +157,7 @@ if S.mode != "records"
         d = only(filter(r -> r["map"] == MAP && r["depth"] == string(S.fine) && r["a"] == string(e.a), dens))
         t = only(filter(r -> r["map"] == MAP && r["coarse_depth"] == string(S.coarse(e)) && r["a"] == string(e.a) &&
                              r["fine_depth"] == string(S.fine), tr))
+        isfinite(rd(t["err_swapped"])) || (println("ξ = $(xi_string(e.a)): no bound at depth $(S.fine), no figure"); continue)
         g = grid_constants(ulam_system(MAP), S.fine, e.a)
         D = density_matrix(Serialization.deserialize(joinpath(S.datadir, d["density_file"])).density, g.k, g.h)
         x0, x1 = -sqrt(g.area) / 2, sqrt(g.area) / 2

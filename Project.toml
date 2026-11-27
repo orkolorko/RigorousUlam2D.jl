@@ -22,7 +22,7 @@ HDF5 = "f67ccb44-e63f-5c2f-98bd-6dc0ccc4ba2f"
 
 [sources]
 BallArithmetic = {rev = "19c6924b3c5e0894029f075203fa27e7bc989310", url = "https://github.com/JuliaBallArithmetic/BallArithmetic.jl.git"}
-CertifiedRecords = {rev = "bc2d2243f9b8e96ce91464a65293293741295f36", url = "https://github.com/orkolorko/CertifiedRecords.jl.git"}
+CertifiedRecords = {rev = "c6630f03faf8dcd5f1a86705fa986e8a81d52057", url = "https://github.com/orkolorko/CertifiedRecords.jl.git"}
 RigorousInvariantMeasures = {rev = "ceae111216ce94a3ace3e1cb6b4b215260c4846a", url = "https://github.com/JuliaDynamics/RigorousInvariantMeasures.jl.git"}
 
 [extensions]

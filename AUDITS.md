@@ -102,3 +102,29 @@ stationary_density record has columns `var1f`, `var2f` for `varf`. Checked by re
 tests of test/test_l1_error.jl and test/test_spectral_analysis.jl against the edge sums, against
 256-bit sums, and on functions of one coordinate alone (whose other variation is 0). The values
 the L¹ chain used are unchanged: `var₁₂(ρ_ξ) = 2/a` was already computed from `a`.
+
+## 2026-11-27, at 5e19fc5: the publication cleanup leaves the certified numbers unchanged
+
+On nighthawk (128 cores; runs on 4 to 32 Julia threads).  The cleanup (2b4d0df to 5e19fc5) removed
+the API the paper does not use, moved three private helpers of RigorousPseudospectra
+(`_stencil_width`, `_max_colsum_up`, `_eta_stored`, src/operator.jl at 283c1b2) into
+`src/noisy_operator.jl`, and moved the bodies of the drivers tree_deepen, stationary_density,
+l1_mixing and l1_transfer into the package (`src/stages.jl`).  Checked by comparison, bit for bit:
+
+Passed:
+
+- `noisy_ulam_operator` (`w`, `colL`, `colE`, `γN`, `η1`, `eta1A`, `normP`) and
+  `norms_of_powers_columns` (the 150 `C_j` of every column sweep) and `refine_norms_of_powers`,
+  against the eight records `l1_mixing.<map>_d6_a<p>-<q>.nighthawk.jls` of 2026-11-16 (b1f7625,
+  Hénon and Lorenz-like, a = 77/256, 51/256, 51/512, 13/256), recomputed whole from their blocks
+  and densities: equal as doubles (test/test_records.jl, second testset, 24 tests).
+- The drivers before and after the move into stages: bench/tree_deepen.jl (Lorenz-like, depths
+  2 to 7, level 8, 12 bisections), stationary_density.jl (depths 6 and 7, a = 3/8), l1_mixing.jl
+  (depth 6, 40 powers) and l1_transfer.jl (to depth 7), run into empty data directories at 96d8bf0
+  and at 5e19fc5: every column of every record up to `seconds` and `environment` is the same
+  string, and the blocks (`L_lo`, `U`, graph) and densities written are equal.
+
+Not covered: the records of the paper's table (on ibis and albatross; test/test_records.jl, first
+testset, recomputes their cheap parts and has not yet been run there), the column sweeps at depths
+8 and 9, and the trees at depth 12.  The entries above still hold for the code they name: the
+operations of the audited routines are unchanged.

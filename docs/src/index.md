@@ -15,4 +15,4 @@ RigorousUlam2D
 
 The stages, in the order a run goes through them, are listed in the [API reference](api.md); the
 drivers that chain them and write the records are in `bench/` and `paper/` of the repository,
-and the worked examples in RigorousUlam2DExperiments.jl.
+and the worked examples, one per map, are the pages that follow (`docs/literate/`).

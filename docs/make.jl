@@ -1,5 +1,12 @@
 using RigorousUlam2D
-using Documenter
+using Documenter, Literate
+
+# The worked examples of docs/literate as pages, not executed: a run is a computation
+# (see example_settings in docs/literate/settings.jl).
+for name in ("henon", "lorenz_like", "contracting_lorenz")
+    Literate.markdown(joinpath(@__DIR__, "literate", "$name.jl"), joinpath(@__DIR__, "src", "examples");
+                      documenter = true, execute = false)
+end
 
 DocMeta.setdocmeta!(RigorousUlam2D, :DocTestSetup, :(using RigorousUlam2D); recursive=true)
 
@@ -14,6 +21,9 @@ makedocs(;
     ),
     pages=[
         "Home" => "index.md",
+        "The Hénon map" => "examples/henon.md",
+        "The Lorenz-like map" => "examples/lorenz_like.md",
+        "The contracting Lorenz map" => "examples/contracting_lorenz.md",
         "API Reference" => "api.md",
     ],
     checkdocs=:exports,  # Only check exported functions

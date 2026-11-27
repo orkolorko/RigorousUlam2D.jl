@@ -19,3 +19,6 @@
 # paper/dynamics.jl            : images/dynamics.*.<commit>.<host>.pdf
 # paper/blocks_hdf5.jl         : data/blocks_hdf5.<block>.<L_lo|U>.<commit>.<host>.h5
 # paper/dataverse.jl           : dataverse.<commit>.<host>/{files.tsv,excluded.tsv,MANIFEST.sha256,README.md,metadata.json}
+# docs/literate/henon.jl       : (MODE=full) the records above for the Hénon rows of Table 1; (MODE=check) the same under bulk/henon.check.<host>/
+# docs/literate/lorenz_like.jl : as henon.jl, for the Lorenz-like map
+# docs/literate/contracting_lorenz.jl : as henon.jl, for the contracting Lorenz map

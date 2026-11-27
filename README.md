@@ -47,7 +47,10 @@ julia --project=paper paper/figures.jl                             # Table 1 and
 
 A column sweep at depth 8 took 2658 s on 16 threads of ibis (l1_mixing.d78ed9d.ibis.tsv), and the
 densities of the table are at depth 12, `2^24` cells.  The worked examples, which regenerate each
-number of the paper's table step by step and check a small depth against the records, are in [RigorousUlam2DExperiments.jl](https://github.com/orkolorko/RigorousUlam2DExperiments.jl).
+number of the paper's table step by step and check a small depth against the records, are the
+Literate files of `docs/literate/` (`henon.jl`, `lorenz_like.jl`, `contracting_lorenz.jl`), run as
+`MODE=check julia --project=paper docs/literate/henon.jl` (modes `check`, `records`, `full`; see
+`example_settings` in `docs/literate/settings.jl`).
 
 ## Tests
 

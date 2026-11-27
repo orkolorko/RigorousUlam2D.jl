@@ -26,7 +26,6 @@
 # with those of `noisy_ulam_operator` and `norms_of_powers_columns` on the same block and density.
 
 using Test, RigorousUlam2D, CertifiedRecords
-using BallArithmetic: add_up, mul_up
 import Serialization
 using SparseArrays
 
@@ -97,12 +96,9 @@ _params(hdr) = Dict(m.captures[1] => strip(m.captures[2])
                 @test (r["Sigma"], r["k"]) == (_wr(st.grid), string(st.k))
                 densrows === nothing && continue
                 dr = only(filter(x -> x["map"] == map && x["depth"] == string(d) && x["a"] == string(a), densrows))
-                ε1, ε2 = _rd(dr["eps1"]), _rd(dr["eps2"])
-                err_apriori = mul_up(st.grid, defect)
-                dist = fixed_point_distance(st.grid, ε1, ε2)
+                b = transfer_bounds(st.grid, g′, _rd(dr["eps1"]), _rd(dr["eps2"]))
                 @test (r["err_apriori"], r["dist"], r["err"], r["err_swapped"]) ==
-                      (_wr(err_apriori), _wr(dist), _wr(add_up(err_apriori, dist)),
-                       _wr(swapped_error(st.grid, g′.h, g′.var12ρ, ε1, ε2)))
+                      (_wr(b.err_apriori), _wr(b.dist), _wr(b.err), _wr(b.err_swapped))
             end
 
             # the operator of the sweep and its constants

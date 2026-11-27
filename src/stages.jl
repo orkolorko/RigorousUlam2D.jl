@@ -11,7 +11,7 @@ and BLAS thread counts; each row names, in its column `environment`, the copy of
 the run (`save_environment`), and carries the wall-clock time of the run in a column `seconds`.
 """
 
-export run_blocks, run_stationary_density, run_column_sweep, run_transfer
+export run_blocks, run_stationary_density, run_column_sweep, run_transfer, transfer_bounds
 
 using CertifiedRecords: run_header, save_environment, recorded_keys, latest_record, read_record, read_endpoint
 using Printf: @printf
@@ -222,6 +222,23 @@ function run_column_sweep(map::AbstractString, depth::Int, a::Rational; datadir:
 end
 
 """
+    transfer_bounds(Σ, g, ε1, ε2) -> (; defect, err_apriori, dist, err, err_swapped)
+
+The bounds of prop:l1error on the grid `g = grid_constants(sys, d, a)`, from `Σ ≥ ‖(I − Λ)⁻¹|_V‖₁`
+(`sigma_from_norms` of `coarse_fine_norms`) and the residuals `ε₁ ≥ ‖P_h f̃ − f̃‖₁`, `ε₂ ≥ |Σf̃ − 1|`
+of the computed density on that grid: the defect `3θ_h` (`defect_apriori`),
+`‖f_ξ − f_h‖₁ ≤ Σ · 3θ_h` (`err_apriori`), `‖f̃ − f_h‖₁ ≤ fixed_point_distance(Σ, ε₁, ε₂)` (`dist`),
+their sum `err ≥ ‖f_ξ − f̃‖₁`, and `swapped_error(Σ, h, var₁₂(ρ_ξ), ε₁, ε₂) ≥ ‖f_ξ − f̃‖₁`; upward.
+"""
+function transfer_bounds(Σ::Float64, g, ε1::Float64, ε2::Float64)
+    defect = defect_apriori(g.h, g.var12ρ)
+    err_apriori = mul_up(Σ, defect)
+    dist = fixed_point_distance(Σ, ε1, ε2)
+    return (; defect, err_apriori, dist, err = add_up(err_apriori, dist),
+            err_swapped = swapped_error(Σ, g.h, g.var12ρ, ε1, ε2))
+end
+
+"""
     run_transfer(map, depth, a, fine; datadir, script = "bench/l1_transfer.jl") -> Vector of rows
 
 The L¹ error of the stationary density on the finer grids of the depths `fine`, from the column
@@ -275,10 +292,8 @@ function run_transfer(map::AbstractString, depth::Int, a::Rational, fine::Abstra
             push!(rows, (; fine_depth = d, Sigma = Inf, k = 0, defect, err_apriori = Inf, dist = Inf, err = Inf, err_swapped = Inf))
             continue
         end
-        err_apriori = mul_up(s.grid, defect)
-        dist = fixed_point_distance(s.grid, ε1, ε2)
-        err = add_up(err_apriori, dist)
-        err_swapped = swapped_error(s.grid, g′.h, g′.var12ρ, ε1, ε2)
+        b = transfer_bounds(s.grid, g′, ε1, ε2)
+        err_apriori, dist, err, err_swapped = b.err_apriori, b.dist, b.err, b.err_swapped
         @printf("depth %2d: (3h'/2) var₁₂(ρ_ξ) = %.6g, ‖f_ξ − f_h'‖₁ ≤ %.6g, ‖f̃ − f_h'‖₁ ≤ %.3e, ‖f_ξ − f̃‖₁ ≤ %.6g, swapped ≤ %.6g\n",
             d, defect, err_apriori, dist, err, err_swapped)
         append_record(record, [map, depth, a, d, write_endpoint(s.grid)[1], s.k, write_endpoint(defect)[1],

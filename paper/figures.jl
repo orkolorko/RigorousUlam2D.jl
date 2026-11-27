@@ -15,6 +15,9 @@
 #       for each Lorenz map, the density of the x-marginal of f̃ (x_marginal) at every noise size
 #       with a finite bound, the bound of the density in the legend: integrating out y is an L¹
 #       contraction, so it bounds the marginal too;
+#   figures.marginal_<map>_a<p>-<q>_d<depth>.<commit>.<host>.pdf
+#       for each Lorenz map, the same marginal at the smallest noise size alone, the size of a
+#       density panel;
 #   figures.table_bounds.<commit>.<host>.tex
 #       a LaTeX tabular, one row per (map, a): the coarse depth of the best bound, Σ_V of that
 #       sweep, the transfer's Σ, ε₁ and ε₂ of f̃ at DEPTH, and the bounds at DEPTH by the direct
@@ -184,6 +187,14 @@ for m in unique(r.map for r in rows if r.map != "henon")
     end
     Legend(fig[1, 2], ax; labelsize = 10, framevisible = false)
     save(out("marginal_$(m)_d$DEPTH", "pdf"), fig)
+    # the marginal at the smallest noise size alone, the size of a density panel, for the
+    # overview figure of the introduction that puts it beside that density
+    r = argmin(r -> parse(Rational{Int}, replace(r.a, "//" => "/")), rs)
+    fig = Figure(size = (520, 460))
+    ax = Axis(fig[1, 1]; xlabel = "x", ylabel = "density of the x-marginal",
+              title = "$(name(m)), ξ = $(xi(r.a)): ‖·‖₁ error ≤ $(tex(up3(r.errs); unicode = true))")
+    lines!(ax, xc, marg[r]; color = :black)
+    save(out("marginal_$(m)_a$(replace(r.a, "//" => "-"))_d$DEPTH", "pdf"), fig)
 end
 
 open(out("table_bounds", "tex"), "w") do io

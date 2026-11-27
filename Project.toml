@@ -20,10 +20,17 @@ SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 [weakdeps]
 HDF5 = "f67ccb44-e63f-5c2f-98bd-6dc0ccc4ba2f"
 
-[sources]
-BallArithmetic = {rev = "19c6924b3c5e0894029f075203fa27e7bc989310", url = "https://github.com/JuliaBallArithmetic/BallArithmetic.jl.git"}
-CertifiedRecords = {rev = "c6630f03faf8dcd5f1a86705fa986e8a81d52057", url = "https://github.com/orkolorko/CertifiedRecords.jl.git"}
-RigorousInvariantMeasures = {rev = "ceae111216ce94a3ace3e1cb6b4b215260c4846a", url = "https://github.com/JuliaDynamics/RigorousInvariantMeasures.jl.git"}
+[sources.BallArithmetic]
+rev = "19c6924b3c5e0894029f075203fa27e7bc989310"
+url = "https://github.com/JuliaBallArithmetic/BallArithmetic.jl.git"
+
+[sources.CertifiedRecords]
+rev = "c6630f03faf8dcd5f1a86705fa986e8a81d52057"
+url = "https://github.com/orkolorko/CertifiedRecords.jl.git"
+
+[sources.RigorousInvariantMeasures]
+rev = "ceae111216ce94a3ace3e1cb6b4b215260c4846a"
+url = "https://github.com/JuliaDynamics/RigorousInvariantMeasures.jl.git"
 
 [extensions]
 RigorousUlam2DHDF5Ext = "HDF5"
@@ -38,6 +45,7 @@ IntervalArithmetic = "0.22.36, 1"
 IntervalBoxes = "0.2.2, 0.3"
 Printf = "1.11.0"
 RigorousInvariantMeasures = "0.3"
+SHA = "0.7"
 julia = "1.13"
 
 [extras]
